@@ -8,7 +8,6 @@ from ywretriever import Retriever, entity_linking
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 class ToGReasoning:
     """
     ToG (Think-on-Graph) 推理引擎
@@ -25,7 +24,7 @@ class ToGReasoning:
             api_key: str,
             beam_width: int = 3,
             max_depth: int = 10,
-            retriever_path: str = "D:/CODE_FILE/CODE_PYTHON/YW_RAG_backend/tog-neo4j/.retrive/ywcorom",
+            retriever_path: str =None,
             entity_linking_threshold: float = 15.0
     ):
         self.neo4j = neo4j_connector
@@ -92,9 +91,6 @@ Answer:""",
 
             Answer:"""
         }
-
-
-
 
     def _call_llm(self, prompt: str, temperature: float = 0.0) -> str:
         """调用LLM"""
@@ -401,6 +397,8 @@ Answer:""",
         try:
             logger.info(f"开始ToG推理 - 问题: {question}")
             logger.info(f"参数: max_depth={depth_limit}, beam_width={beam_width}")
+            if self.neo4j.grag_id:
+                logger.info(f"数据隔离: grag_id={self.neo4j.grag_id}")
 
             # Phase 1: Initialization
             current_paths = []
