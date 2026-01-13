@@ -15,7 +15,7 @@ from tog_reasoning import ToGReasoning
 from deal_graph import main as deal_graph_main
 from insert_to_neo4j import main as insert_neo4j_main
 from ywretriever import crtDenseRetriever
-
+from Response import R  # 导入统一响应类
 
 # ====================================================================================================================================================================================
 # 配置信息
@@ -60,10 +60,10 @@ DEFAULT_NEO4J_CONFIG = {
 GRAPHRAG_ROOT = "../graphrag"
 BASE_SETTINGS_PATH = os.path.join(GRAPHRAG_ROOT, "settings.yaml")
 
+
 # ====================================================================================================================================================================================
 # /配置信息
 # ====================================================================================================================================================================================
-
 
 
 # ====================================================================================================================================================================================
@@ -78,21 +78,11 @@ class MessageItem(BaseModel):
 
 
 class ToGQueryRequest(BaseModel):
-    """ToG查询请求（修改：添加 grag_id）"""
+    """ToG查询请求"""
     grag_id: str  # 必需参数
     max_depth: Optional[int] = 10
     max_width: Optional[int] = 3
     messages: Optional[List[MessageItem]] = None
-
-
-class ToGQueryResponse(BaseModel):
-    """ToG查询响应"""
-    success: bool
-    question: str
-    answer: str
-    execution_time: float
-    grag_id: str  # 添加 grag_id 到响应
-    error_message: Optional[str] = None
 
 
 class GraphRAGQueryRequest(BaseModel):
@@ -102,35 +92,14 @@ class GraphRAGQueryRequest(BaseModel):
     method: Optional[str] = "local"
 
 
-class GraphRAGQueryResponse(BaseModel):
-    """GraphRAG查询响应"""
-    success: bool
-    question: str
-    answer: str
-    grag_id: str
-    execution_time: Optional[float] = 0
-    error_message: Optional[str] = None
-
-
 class ToGGraphRAGQueryRequest(BaseModel):
     """ToG+GraphRAG混合查询请求"""
     grag_id: str  # 必需参数
     max_depth: Optional[int] = 10  # ToG参数
-    max_width: Optional[int] = 3   # ToG参数
+    max_width: Optional[int] = 3  # ToG参数
     method: Optional[str] = "local"  # GraphRAG参数
     messages: Optional[List[MessageItem]] = None
 
-
-class ToGGraphRAGQueryResponse(BaseModel):
-    """ToG+GraphRAG混合查询响应"""
-    success: bool
-    question: str
-    final_answer: str  # 整合后的最终答案
-    tog_answer: str    # ToG原始答案
-    graphrag_answer: str  # GraphRAG原始答案
-    grag_id: str
-    execution_time: float
-    error_message: Optional[str] = None
 
 # ====================================================================================================================================================================================
 # /请求和响应模型
@@ -368,7 +337,7 @@ async def create_graph_task(file_path: str, filename: str, grag_id: str,
 
         log_step(7, TOTAL_STEPS, "根据csv文件建立密集索引", grag_id)
         retriv_dir = crtDenseRetriever(retriv_dir=os.path.join(user_path, ".retrive"),
-                                      file_path=os.path.join(user_path, "nodes_pandas.csv"))
+                                       file_path=os.path.join(user_path, "nodes_pandas.csv"))
         if retriv_dir:
             logger.info(f"[{grag_id}] ✅ 索引创建成功: {retriv_dir}")
         else:
@@ -535,6 +504,7 @@ def get_neo4j_connector(grag_id: str) -> Neo4jConnector:
             detail=f"无法连接到数据库 '{grag_id}': {str(e)}"
         )
 
+
 def clean_graphrag_output(raw_text: str) -> str:
     """清理GraphRAG的原始输出"""
     # 去除ANSI转义序列
@@ -549,7 +519,6 @@ def clean_graphrag_output(raw_text: str) -> str:
     text = re.sub(r'\n\s*\n', '\n\n', text)
 
     return text
-
 
 
 # ============================================================
@@ -603,10 +572,10 @@ async def generate_integrated_answer(neo4j_connector: Neo4jConnector, prompt: st
     except Exception as e:
         raise Exception(f"大模型调用失败: {str(e)}")
 
+
 # ====================================================================================================================================================================================
 # /工具函数
 # ====================================================================================================================================================================================
-
 
 
 # ====================================================================================================================================================================================
@@ -618,21 +587,19 @@ async def generate_integrated_answer(neo4j_connector: Neo4jConnector, prompt: st
 # CORS跨域测试接口
 # ============================================================
 
-@app.get("/CORS_test")
+@app.get("/CORS_test", response_model=R)
 async def index():
     """简单的测试接口，用于验证跨域(CORS)配置是否生效"""
     logger.info("收到 CORS跨域 测试请求")
-    return {
-        "message": "CORS test successful",
-        "status": "ok"
-    }
+
+    return R.ok(message="CORS test successful")
 
 
 # ============================================================
 # ToG查询接口
 # ============================================================
 
-@app.post("/query/tog", response_model=ToGQueryResponse)
+@app.post("/query/tog", response_model=R)
 async def query_with_tog(request: ToGQueryRequest):
     """使用ToG (Think-on-Graph) 方法查询知识图谱"""
     try:
@@ -657,13 +624,11 @@ async def query_with_tog(request: ToGQueryRequest):
         if not question:
             error_msg = "未找到有效的用户问题"
             logger.error(f"[{request.grag_id}] ❌ {error_msg}")
-            return ToGQueryResponse(
-                success=False,
-                question="",
-                answer="",
-                execution_time=0,
-                grag_id=request.grag_id,
-                error_message=error_msg
+            # ✅ 使用 R.error()
+            return R.error(
+                message=error_msg,
+                error_detail="messages 参数中没有 role 为 user 的消息",
+                code="400"
             )
 
         logger.info(f"[{request.grag_id}] 💬 问题: {question}")
@@ -700,22 +665,26 @@ async def query_with_tog(request: ToGQueryRequest):
         logger.info(f"[{request.grag_id}] 📄 答案长度: {len(result.get('answer', ''))} 字符")
         logger.info("=" * 60)
 
-        # 添加 grag_id 到结果
-        result["grag_id"] = request.grag_id
-
-        return ToGQueryResponse(**result)
+        # ✅ 使用 R.ok() 封装结果
+        return R.ok(
+            message="查询成功",
+            data={
+                "question": question,
+                "answer": result.get('answer', ''),
+                "execution_time": result.get('execution_time', 0),
+                "grag_id": request.grag_id
+            }
+        )
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"[{request.grag_id}] ❌ 查询处理失败: {e}", exc_info=True)
-        return ToGQueryResponse(
-            success=False,
-            question=question if 'question' in locals() else "",
-            answer="",
-            execution_time=0,
-            grag_id=request.grag_id,
-            error_message=f"查询处理失败: {str(e)}"
+        # ✅ 使用 R.error()
+        return R.error(
+            message="查询处理失败",
+            error_detail=str(e),
+            code="500"
         )
 
 
@@ -723,7 +692,7 @@ async def query_with_tog(request: ToGQueryRequest):
 # GraphRAG查询接口
 # ============================================================
 
-@app.post("/query/graphrag", response_model=GraphRAGQueryResponse)
+@app.post("/query/graphrag", response_model=R)
 async def graphrag_query(request: GraphRAGQueryRequest):
     """执行GraphRAG查询"""
     import time
@@ -751,13 +720,10 @@ async def graphrag_query(request: GraphRAGQueryRequest):
         if not question:
             error_msg = "未找到有效的用户问题"
             logger.error(f"[{request.grag_id}] ❌ {error_msg}")
-            return GraphRAGQueryResponse(
-                success=False,
-                question="",
-                answer="",
-                grag_id=request.grag_id,
-                execution_time=0,
-                error_message=error_msg
+            return R.error(
+                message=error_msg,
+                error_detail="messages 参数中没有 role 为 user 的消息",
+                code="400"
             )
 
         logger.info(f"[{request.grag_id}] 💬 问题: {question}")
@@ -769,13 +735,9 @@ async def graphrag_query(request: GraphRAGQueryRequest):
         if not os.path.exists(user_path):
             error_msg = f"目录 {request.grag_id} 不存在，请先创建知识图谱"
             logger.error(f"[{request.grag_id}] ❌ {error_msg}")
-            return GraphRAGQueryResponse(
-                success=False,
-                question=question,
-                answer="",
-                grag_id=request.grag_id,
-                execution_time=time.time() - start_time,
-                error_message=error_msg
+            return R.not_found(
+                message=error_msg,
+                data={"grag_id": request.grag_id}
             )
 
         logger.info(f"[{request.grag_id}] ✅ 知识图谱目录存在")
@@ -804,25 +766,26 @@ async def graphrag_query(request: GraphRAGQueryRequest):
             logger.info(f"[{request.grag_id}] 📄 答案长度: {len(result)} 字符")
             logger.info("=" * 60)
 
-            return GraphRAGQueryResponse(
-                success=True,
-                question=question,
-                answer=result,
-                grag_id=request.grag_id,
-                execution_time=execution_time,
-                error_message=None
+            # ✅ 使用 R.ok()
+            return R.ok(
+                message="查询成功",
+                data={
+                    "question": question,
+                    "answer": result,
+                    "grag_id": request.grag_id,
+                    "execution_time": execution_time
+                }
             )
         else:
             error_msg = stderr[:500] if stderr else "未知错误"
             logger.error(f"[{request.grag_id}] ❌ 查询失败: {error_msg}")
             logger.info("=" * 60)
-            return GraphRAGQueryResponse(
-                success=False,
-                question=question,
-                answer="",
-                grag_id=request.grag_id,
-                execution_time=execution_time,
-                error_message=f"查询失败: {error_msg}"
+
+            # ✅ 使用 R.fail()
+            return R.fail(
+                message="查询失败",
+                data={"error": error_msg},
+                code="500"
             )
 
     except subprocess.TimeoutExpired:
@@ -830,26 +793,24 @@ async def graphrag_query(request: GraphRAGQueryRequest):
         error_msg = "查询执行超时(超过5分钟)"
         logger.error(f"[{request.grag_id}] ❌ {error_msg}")
         logger.info("=" * 60)
-        return GraphRAGQueryResponse(
-            success=False,
-            question=question if 'question' in locals() else "",
-            answer="",
-            grag_id=request.grag_id,
-            execution_time=execution_time,
-            error_message=error_msg
+
+        # ✅ 使用 R.fail()
+        return R.fail(
+            message=error_msg,
+            data={"execution_time": execution_time},
+            code="408"
         )
 
     except Exception as e:
         execution_time = time.time() - start_time
         logger.error(f"[{request.grag_id}] ❌ 查询异常: {e}", exc_info=True)
         logger.info("=" * 60)
-        return GraphRAGQueryResponse(
-            success=False,
-            question=question if 'question' in locals() else "",
-            answer="",
-            grag_id=request.grag_id,
-            execution_time=execution_time,
-            error_message=f"查询处理失败: {str(e)}"
+
+        # ✅ 使用 R.error()
+        return R.error(
+            message="查询处理失败",
+            error_detail=str(e),
+            code="500"
         )
 
 
@@ -857,7 +818,7 @@ async def graphrag_query(request: GraphRAGQueryRequest):
 # ToG+GraphRAG混合查询接口
 # ============================================================
 
-@app.post("/query/tog_grag", response_model=ToGGraphRAGQueryResponse)
+@app.post("/query/tog_grag", response_model=R)
 async def query_with_tog_graphrag(request: ToGGraphRAGQueryRequest):
     """
     使用ToG和GraphRAG混合方法查询知识图谱
@@ -881,15 +842,10 @@ async def query_with_tog_graphrag(request: ToGGraphRAGQueryRequest):
         if not question:
             error_msg = "未找到有效的用户问题"
             logger.error(f"[{request.grag_id}] ❌ {error_msg}")
-            return ToGGraphRAGQueryResponse(
-                success=False,
-                question="",
-                final_answer="",
-                tog_answer="",
-                graphrag_answer="",
-                execution_time=0,
-                grag_id=request.grag_id,
-                error_message=error_msg
+            return R.error(
+                message=error_msg,
+                error_detail="messages 参数中没有 role 为 user 的消息",
+                code="400"
             )
 
         logger.info(f"[{request.grag_id}] 💬 问题: {question}")
@@ -932,15 +888,9 @@ async def query_with_tog_graphrag(request: ToGGraphRAGQueryRequest):
             if not os.path.exists(user_path):
                 error_msg = f"目录 {request.grag_id} 不存在，请先创建知识图谱"
                 logger.error(f"[{request.grag_id}] ❌ {error_msg}")
-                return ToGGraphRAGQueryResponse(
-                    success=False,
-                    question=question,
-                    final_answer="",
-                    tog_answer=tog_answer,
-                    graphrag_answer="",
-                    execution_time=time.time() - start_time,
-                    grag_id=request.grag_id,
-                    error_message=error_msg
+                return R.not_found(
+                    message=error_msg,
+                    data={"grag_id": request.grag_id}
                 )
 
             query_command = (
@@ -973,15 +923,9 @@ async def query_with_tog_graphrag(request: ToGGraphRAGQueryRequest):
         if not tog_answer and not graphrag_answer:
             error_msg = "两种查询方法都未返回有效答案"
             logger.error(f"[{request.grag_id}] ❌ {error_msg}")
-            return ToGGraphRAGQueryResponse(
-                success=False,
-                question=question,
-                final_answer="",
-                tog_answer=tog_answer,
-                graphrag_answer=graphrag_answer,
-                execution_time=time.time() - start_time,
-                grag_id=request.grag_id,
-                error_message=error_msg
+            return R.fail(
+                message=error_msg,
+                code="500"
             )
 
         # 准备整合提示词
@@ -1025,29 +969,28 @@ async def query_with_tog_graphrag(request: ToGGraphRAGQueryRequest):
         logger.info(f"[{request.grag_id}] ✅ 混合查询完成，总耗时: {execution_time:.2f}秒")
         logger.info("=" * 60)
 
-        return ToGGraphRAGQueryResponse(
-            success=True,
-            question=question,
-            final_answer=final_answer,
-            tog_answer=tog_answer,
-            graphrag_answer=graphrag_answer,
-            grag_id=request.grag_id,
-            execution_time=execution_time,
-            error_message=None
+        # ✅ 使用 R.ok()
+        return R.ok(
+            message="混合查询成功",
+            data={
+                "question": question,
+                "final_answer": final_answer,
+                "tog_answer": tog_answer,
+                "graphrag_answer": graphrag_answer,
+                "grag_id": request.grag_id,
+                "execution_time": execution_time
+            }
         )
 
     except Exception as e:
         execution_time = time.time() - start_time
         logger.error(f"[{request.grag_id}] ❌ 混合查询处理失败: {e}", exc_info=True)
-        return ToGGraphRAGQueryResponse(
-            success=False,
-            question=question if 'question' in locals() else "",
-            final_answer="",
-            tog_answer=tog_answer if 'tog_answer' in locals() else "",
-            graphrag_answer=graphrag_answer if 'graphrag_answer' in locals() else "",
-            execution_time=execution_time,
-            grag_id=request.grag_id,
-            error_message=f"查询处理失败: {str(e)}"
+
+        # ✅ 使用 R.error()
+        return R.error(
+            message="查询处理失败",
+            error_detail=str(e),
+            code="500"
         )
 
 
@@ -1055,7 +998,7 @@ async def query_with_tog_graphrag(request: ToGGraphRAGQueryRequest):
 # GraphRAG创建图谱接口 - 立即响应 + 后台处理
 # ============================================================
 
-@app.post("/graph/create")
+@app.post("/graph/create", response_model=R)
 async def create_graph(
         background_tasks: BackgroundTasks,
         file: UploadFile = File(...),
@@ -1096,12 +1039,10 @@ async def create_graph(
         logger.info(f"[{grag_id}] 📄 后台任务已启动")
         logger.info("=" * 60)
 
-        # 立即返回响应
-        return JSONResponse(
-            status_code=status.HTTP_202_ACCEPTED,  # 202表示请求已接受，正在处理
-            content={
-                "success": True,
-                "message": "正在创建图谱，请稍候...",
+        # ✅ 使用 R.ok() 立即返回
+        return R.ok(
+            message="正在创建图谱，请稍候...",
+            data={
                 "status": "processing",
                 "grag_id": grag_id,
                 "file_saved": file.filename,
@@ -1111,22 +1052,18 @@ async def create_graph(
 
     except Exception as e:
         logger.error(f"[{grag_id if 'grag_id' in locals() else 'Unknown'}] ❌ 处理失败: {e}", exc_info=True)
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "success": False,
-                "message": "请求处理失败",
-                "error": str(e),
-                "grag_id": grag_id if 'grag_id' in locals() else None
-            }
+
+        # ✅ 使用 R.error()
+        return R.error(
+            message="请求处理失败",
+            error_detail=str(e),
+            code="500"
         )
 
 
 # ====================================================================================================================================================================================
 # /接口部分
 # ====================================================================================================================================================================================
-
-
 
 
 if __name__ == "__main__":
