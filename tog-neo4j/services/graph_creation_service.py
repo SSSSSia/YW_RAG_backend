@@ -7,12 +7,14 @@ from pathlib import Path
 from typing import Optional
 from utils.logger import logger, log_step
 from utils.common import run_command_with_progress
-from utils.callbacks import notify_java_backend
+from utils.java_backend import notify_java_backend
 from core.config import settings
 from scripts.deal_graph import main as deal_graph_main
 from scripts.insert_to_neo4j import main as insert_neo4j_main
 from scripts.ywretriever import crtDenseRetriever
 from core.database import db_manager
+import sys
+
 
 
 class GraphCreationService:
@@ -27,12 +29,16 @@ class GraphCreationService:
     async def create_graph(self, file_path: str, filename: str):
         """执行图谱创建的完整流程"""
         try:
+            current_python = sys.executable
+            logger.info(f"[{self.grag_id}] 使用解释器: {current_python}")
             logger.info(f"[{self.grag_id}] 📄 开始后台图谱创建任务")
             TOTAL_STEPS = 7
 
             # 步骤1: 初始化GraphRAG
             log_step(1, TOTAL_STEPS, "初始化GraphRAG配置", self.grag_id)
-            init_command = f"python -m graphrag init --root {self.user_path}"
+            # init_command = f"python -m graphrag init --root {self.user_path}"
+            init_command = f'"{current_python}" -m graphrag init --root "{self.user_path}"'
+
 
             success, stdout, stderr = run_command_with_progress(
                 init_command, "GraphRAG初始化", self.grag_id
@@ -40,11 +46,9 @@ class GraphCreationService:
 
             if not success:
                 await notify_java_backend(
-                    grag_id=self.grag_id,
-                    success=False,
-                    message="初始化失败",
-                    file_saved=filename,
-                    error=stderr[:500]
+                    graph_key=self.grag_id,
+                    code=500,
+                    build_message="初始化失败",
                 )
                 return
 
@@ -65,11 +69,9 @@ class GraphCreationService:
 
             if not success:
                 await notify_java_backend(
-                    grag_id=self.grag_id,
-                    success=False,
-                    message="索引构建失败",
-                    file_saved=filename,
-                    error=stderr[:500]
+                    graph_key=self.grag_id,
+                    code=500,
+                    build_message="索引构建失败",
                 )
                 return
 
@@ -82,11 +84,9 @@ class GraphCreationService:
 
             if not extracted_json_path:
                 await notify_java_backend(
-                    grag_id=self.grag_id,
-                    success=False,
-                    message="图谱创建成功，但三元组提取失败",
-                    file_saved=filename,
-                    error="三元组提取返回空路径"
+                    graph_key=self.grag_id,
+                    code=500,
+                    build_message="图谱创建成功，但三元组提取失败",
                 )
                 return
 
@@ -96,11 +96,9 @@ class GraphCreationService:
 
             if not import_success:
                 await notify_java_backend(
-                    grag_id=self.grag_id,
-                    success=False,
-                    message="图谱创建成功，但数据库导入失败",
-                    file_saved=filename,
-                    error="Neo4j导入失败"
+                    graph_key=self.grag_id,
+                    code=500,
+                    build_message="图谱创建成功，但数据库导入失败",
                 )
                 return
 
@@ -121,22 +119,17 @@ class GraphCreationService:
             # 全部成功，通知Java后端
             logger.info(f"[{self.grag_id}] 🎉 全流程完成！")
             await notify_java_backend(
-                grag_id=self.grag_id,
-                success=True,
-                message="知识图谱构建、提取、导入及导出全部完成",
-                file_saved=filename,
-                output_path=str(self.output_dir),
-                json_extracted=extracted_json_path,
+                graph_key=self.grag_id,
+                code=200,
+                build_message="知识图谱构建、提取、导入及导出全部完成",
             )
 
         except Exception as e:
             logger.error(f"[{self.grag_id}] ❌ 后台任务异常: {e}", exc_info=True)
             await notify_java_backend(
-                grag_id=self.grag_id,
-                success=False,
-                message="处理过程中发生异常",
-                file_saved=filename,
-                error=str(e)
+                graph_key=self.grag_id,
+                code=500,
+                build_message="处理过程中发生异常",
             )
 
     def export_nodes_to_csv(self) -> bool:

@@ -2,7 +2,7 @@
 所有Pydantic模型定义
 """
 from typing import Any, Optional, List
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from enum import Enum
 
 
@@ -71,13 +71,13 @@ class ToGQueryRequest(BaseModel):
     grag_id: str
     max_depth: Optional[int] = 10
     max_width: Optional[int] = 3
-    messages: Optional[List[MessageItem]] = None
+    message_items: Optional[List[MessageItem]] = None
 
 
 class GraphRAGQueryRequest(BaseModel):
     """GraphRAG查询请求"""
     grag_id: str
-    messages: Optional[List[MessageItem]] = None
+    message_items: Optional[List[MessageItem]] = None
     method: Optional[str] = "local"
 
 
@@ -87,7 +87,7 @@ class ToGGraphRAGQueryRequest(BaseModel):
     max_depth: Optional[int] = 10
     max_width: Optional[int] = 3
     method: Optional[str] = "local"
-    messages: Optional[List[MessageItem]] = None
+    message_items: Optional[List[MessageItem]] = None
 
 
 class CallbackPayload(BaseModel):
@@ -101,3 +101,10 @@ class CallbackPayload(BaseModel):
     output_path: Optional[str] = None
     json_extracted: Optional[str] = None
     database_imported: bool
+
+class AgentChatRequest(BaseModel):
+    """Agent 统一对话请求模型"""
+    user_id: str
+    company_id: Optional[str]=None
+    grag_id: Optional[str] = None
+    message_items: Optional[List[MessageItem]] = None

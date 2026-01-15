@@ -27,8 +27,8 @@ async def query_with_tog(request: ToGQueryRequest):
 
         # 解析问题
         question = None
-        if request.messages:
-            for message in reversed(request.messages):
+        if request.message_items:
+            for message in reversed(request.message_items):
                 if message.role == "user":
                     question = message.content
                     break
@@ -81,8 +81,8 @@ async def query_graphrag(request: GraphRAGQueryRequest):
 
         # 解析问题
         question = None
-        if request.messages:
-            for message in reversed(request.messages):
+        if request.message_items:
+            for message in reversed(request.message_items):
                 if message.role == "user":
                     question = message.content
                     break
@@ -131,8 +131,8 @@ async def query_tog_graphrag(request: ToGGraphRAGQueryRequest):
 
         # 解析问题
         question = None
-        if request.messages:
-            for message in reversed(request.messages):
+        if request.message_items:
+            for message in reversed(request.message_items):
                 if message.role == "user":
                     question = message.content
                     break

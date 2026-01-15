@@ -16,7 +16,8 @@ class Settings(BaseSettings):
 
     # Java后端回调配置
     java_backend_url: str = "http://localhost:8080"
-    java_callback_path: str = "/graph/response"
+    java_callback_path: str = "/graphs/result"
+    java_get_knowledge_bases_path: str = "/graphs/list"
 
     # 服务器配置
     server_host: str = "0.0.0.0"

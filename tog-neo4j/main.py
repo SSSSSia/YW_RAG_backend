@@ -4,7 +4,7 @@ FastAPI主入口文件
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api import graph_routes, query_routes
+from api import graph_routes, query_routes,agent_routes
 from utils.logger import logger
 from core.database import db_manager
 
@@ -27,6 +27,7 @@ app.add_middleware(
 # 注册路由
 app.include_router(graph_routes.router)
 app.include_router(query_routes.router)
+app.include_router(agent_routes.router)
 
 
 # 根路径

@@ -8,6 +8,7 @@ from typing import Tuple
 from utils.logger import logger, log_step
 from utils.common import run_command_with_progress
 from core.config import settings
+import sys
 
 
 class GraphRAGService:
@@ -28,8 +29,10 @@ class GraphRAGService:
 
         logger.info(f"[{self.grag_id}] 执行GraphRAG查询: {question}")
 
+        current_python = sys.executable
+        logger.info(f"[{self.grag_id}] 使用解释器: {current_python}")
         query_command = (
-            f'python -m graphrag query '
+            f'{current_python} -m graphrag query '
             f'--root {self.user_path} '
             f'--method {method} '
             f'--query "{question}"'

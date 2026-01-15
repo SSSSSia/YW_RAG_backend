@@ -14,7 +14,7 @@ from core.config import settings
 class ToGService:
     """ToG推理服务"""
 
-    def __init__(self, grag_id: str, max_depth: int = 10, max_width: int = 3):
+    def __init__(self, grag_id: str, max_depth: int = 5, max_width: int = 5):
         self.grag_id = grag_id
         self.max_depth = max_depth
         self.max_width = max_width
