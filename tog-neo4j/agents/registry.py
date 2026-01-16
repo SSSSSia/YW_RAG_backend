@@ -18,7 +18,7 @@ class AgentRegistry:
             logger.warning(f"Agent '{agent.name}' 已存在，将被覆盖")
 
         self._agents[agent.name] = agent
-        logger.info(f"✅ Agent '{agent.name}' 注册成功")
+        # logger.info(f"✅ Agent '{agent.name}' 注册成功")
 
     def get_agent(self, name: str) -> Optional[BaseAgent]:
         """根据名称获取 Agent"""

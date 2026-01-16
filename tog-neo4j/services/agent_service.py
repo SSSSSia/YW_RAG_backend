@@ -27,19 +27,7 @@ class AgentService:
             metadata: Dict[str, Any] = None,
             agent_name: Optional[str] = None
     ) -> Dict[str, Any]:
-        """
-        处理用户请求
-
-        Args:
-            grag_id: 图谱ID
-            question: 用户查询
-            conversation_history: 对话历史
-            metadata: 额外元数据
-            agent_name: 指定的Agent名称（可选）
-
-        Returns:
-            处理结果
-        """
+        """处理用户请求"""
         start_time = time.time()
 
         try:
@@ -47,18 +35,7 @@ class AgentService:
             logger.info(f"[{grag_id}] 🤖 Agent服务收到请求")
             logger.info(f"查询: {question}")
 
-            # 【新增】如果提供了 company_id，从 Java 后端获取知识库列表
-            company_id = (metadata or {}).get("company_id")
-            user_id = (metadata or {}).get("user_id")
-
-            kb_list = []
-            # if company_id and user_id:
-            #     logger.info(f"📚 获取公司 {company_id} 的知识库列表...")
-            #     kb_list = await get_knowledge_bases(
-            #         company_id=company_id,
-            #         user_id=user_id
-            #     )
-            #     logger.info(f"📚 获取到 {len(kb_list)} 个知识库")
+            # 获取知识库列表
             kb_list = await get_knowledge_bases()
 
             # 创建上下文
@@ -69,13 +46,12 @@ class AgentService:
                 metadata={
                     **(metadata or {}),
                     "kb_list": kb_list,
-                    "all_kbs": kb_list  # 传递完整知识库列表
+                    "all_kbs": kb_list
                 }
             )
 
             # 选择 Agent
             if agent_name:
-                # 使用指定的 Agent
                 agent = agent_registry.get_agent(agent_name)
                 if not agent:
                     logger.error(f"❌ Agent '{agent_name}' 不存在")
@@ -85,15 +61,22 @@ class AgentService:
                     )
                 logger.info(f"✅ 使用指定的 Agent: {agent_name}")
             else:
-                # 自动规划
-                logger.info("📋 开始任务规划...")
-                planned_agent_name = await agent_planner.plan(context)
-                if not planned_agent_name:
-                    # 如果规划失败，尝试自动查找
-                    logger.info("⚙️ 规划失败，尝试自动查找合适的 Agent...")
-                    agent = agent_registry.find_suitable_agent(context)
-                else:
-                    agent = agent_registry.get_agent(planned_agent_name)
+                # ========= 【关键修改】优先使用 LangGraph Agent =========
+                agent = agent_registry.get_agent("LangGraphAgent")
+
+                # 如果 LangGraph Agent 不可用，回退到 LangChain Agent
+                if not agent:
+                    logger.warning("LangGraphAgent 不可用，回退到 LangChainQueryAgent")
+                    agent = agent_registry.get_agent("LangChainQueryAgent")
+
+                # 如果都不可用，使用原有的自动规划
+                if not agent:
+                    logger.info("📋 开始任务规划...")
+                    planned_agent_name = await agent_planner.plan(context)
+                    if planned_agent_name:
+                        agent = agent_registry.get_agent(planned_agent_name)
+                    else:
+                        agent = agent_registry.find_suitable_agent(context)
 
                 if not agent:
                     logger.error("❌ 未找到合适的 Agent")

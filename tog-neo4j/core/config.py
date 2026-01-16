@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     server_port: int = 9090
 
     # LLM配置
-    llm_api_url: str = "http://localhost:11434/api/generate"
+    llm_api_url: str = "http://localhost:11434"  # Ollama 默认服务地址，不需要额外的API路径
     llm_model: str = "qwen3:8b"
     entity_linking_threshold: float = 15.0
 

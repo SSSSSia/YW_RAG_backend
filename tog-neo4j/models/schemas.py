@@ -69,8 +69,8 @@ class MessageItem(BaseModel):
 class ToGQueryRequest(BaseModel):
     """ToG查询请求"""
     grag_id: str
-    max_depth: Optional[int] = 10
-    max_width: Optional[int] = 3
+    max_depth: Optional[int] = 5
+    max_width: Optional[int] = 5
     message_items: Optional[List[MessageItem]] = None
 
 
@@ -84,8 +84,8 @@ class GraphRAGQueryRequest(BaseModel):
 class ToGGraphRAGQueryRequest(BaseModel):
     """ToG+GraphRAG混合查询请求"""
     grag_id: str
-    max_depth: Optional[int] = 10
-    max_width: Optional[int] = 3
+    max_depth: Optional[int] = 5
+    max_width: Optional[int] = 5
     method: Optional[str] = "local"
     message_items: Optional[List[MessageItem]] = None
 

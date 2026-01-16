@@ -48,7 +48,7 @@ if __name__ == "__main__":
     logger.info("🚀 启动ToG Knowledge Graph API服务器")
     logger.info(f"📍 地址: http://{server_host}:{server_port}")
     logger.info(f"📚 文档: http://{server_host}:{server_port}/docs")
-    logger.info(f"🔗 Java回调地址: {settings.java_backend_url}{settings.java_callback_path}")
+    # logger.info(f"🔗 Java回调地址: {settings.java_backend_url}{settings.java_callback_path}")
     logger.info("=" * 60)
 
     uvicorn.run(

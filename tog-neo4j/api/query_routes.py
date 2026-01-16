@@ -44,8 +44,8 @@ async def query_with_tog(request: ToGQueryRequest):
         log_step(1, 3, "初始化ToG推理引擎", request.grag_id)
         tog_service = ToGService(
             grag_id=request.grag_id,
-            max_depth=request.max_depth or 10,
-            max_width=request.max_width or 3
+            max_depth=request.max_depth or 5,
+            max_width=request.max_width or 5
         )
 
         log_step(2, 3, "执行ToG推理", request.grag_id)
@@ -147,8 +147,8 @@ async def query_tog_graphrag(request: ToGGraphRAGQueryRequest):
         # 执行混合查询
         service = HybridQueryService(
             grag_id=request.grag_id,
-            max_depth=request.max_depth or 10,
-            max_width=request.max_width or 3,
+            max_depth=request.max_depth or 5,
+            max_width=request.max_width or 5,
             method=request.method or "local"
         )
 

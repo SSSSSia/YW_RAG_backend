@@ -1,3 +1,4 @@
+
 """
 Java后端回调通知模块
 """
@@ -58,7 +59,7 @@ async def get_knowledge_bases(page: int = 1, page_size: int = 10000):
                 result = response.json()
                 if result.get("code") == 200:
                     records = result.get("data", {}).get("records", [])
-                    # 只提取graph_key、name、intro字段
+                    # 只提取graph_key、name、intro字段，并过滤掉name为"kk"的知识库以及status不为0的知识库
                     knowledge_bases = [
                         {
                             "graph_key": record.get("graph_key"),
@@ -66,6 +67,7 @@ async def get_knowledge_bases(page: int = 1, page_size: int = 10000):
                             "intro": record.get("intro")
                         }
                         for record in records
+                        if record.get("name") != "kk" and (record.get("status") == 2 or record.get("status") == "2")  # 过滤掉name为"kk"的知识库且只保留status为0的知识库（考虑字符串和数字两种情况）
                     ]
                     logger.info(f"✅ 成功获取知识库列表，共{len(knowledge_bases)}条记录")
                     return knowledge_bases
