@@ -77,7 +77,7 @@ async def agent_chat(request: AgentChatRequest):
             question=question,
             conversation_history=conversation_history,
             metadata=metadata,
-            agent_name=None  # 不指定 Agent，让系统自动规划选择
+            agent_name=None
         )
 
         # 5. 处理响应

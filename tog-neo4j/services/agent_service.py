@@ -61,10 +61,8 @@ class AgentService:
                     )
                 logger.info(f"✅ 使用指定的 Agent: {agent_name}")
             else:
-                # ========= 【关键修改】优先使用 LangGraph Agent =========
-                agent = agent_registry.get_agent("LangGraphAgent")
-
-                # 如果 LangGraph Agent 不可用，回退到 LangChain Agent
+                agent = agent_registry.get_agent("LangChainQueryAgent")
+                # agent = agent_registry.get_agent("LangGraphAgent")
                 if not agent:
                     logger.warning("LangGraphAgent 不可用，回退到 LangChainQueryAgent")
                     agent = agent_registry.get_agent("LangChainQueryAgent")

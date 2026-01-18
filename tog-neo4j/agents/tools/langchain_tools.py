@@ -48,7 +48,7 @@ class GraphRAGTool(BaseTool):
     输入参数:
     - grag_id: 知识库ID
     - question: 用户问题
-    - method: 查询方法 (local/global)
+    - method: 查询方法 (local)
     """
     args_schema: Type[BaseModel] = GraphRAGInput
 
@@ -66,7 +66,7 @@ class GraphRAGTool(BaseTool):
             success, answer, exec_time = service.query(question, method)
 
             if success:
-                return f"查询成功 (耗时: {exec_time:.2f}s):\n{answer}"
+                return answer
             else:
                 return f"查询失败: {answer}"
         except Exception as e:
@@ -114,10 +114,9 @@ class ToGTool(BaseTool):
 
             if result.get("success"):
                 answer = result.get("answer", "")
-                exec_time = result.get("execution_time", 0)
-                return f"推理成功 (耗时: {exec_time:.2f}s):\n{answer}"
+                return answer
             else:
-                return f"推理失败: {result.get('error', '未知错误')}"
+                return result.get('error', '未知错误')
         except Exception as e:
             logger.error(f"ToG工具执行失败: {e}")
             return f"工具执行错误: {str(e)}"
@@ -179,8 +178,7 @@ class HybridQueryTool(BaseTool):
 
             if result.get("success"):
                 answer = result.get("final_answer", "")
-                exec_time = result.get("execution_time", 0)
-                return f"混合查询成功 (耗时: {exec_time:.2f}s):\n{answer}"
+                return answer
             else:
                 return f"查询失败: {result.get('error', '未知错误')}"
         except Exception as e:
