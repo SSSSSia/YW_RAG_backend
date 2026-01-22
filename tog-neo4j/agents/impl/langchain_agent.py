@@ -1,5 +1,5 @@
 """
-基于 LangChain 的智能查询 Agent
+基于 LangChain 的智能查询 Agent - 添加 Markdown 格式化支持
 """
 import time
 from typing import Dict, Any, List
@@ -20,7 +20,7 @@ class LangChainQueryAgent(BaseAgent):
     def __init__(self):
         super().__init__(
             name="LangChainQueryAgent",
-            description="使用 LangChain 框架的智能查询 Agent，支持自动工具选择和推理"
+            description="使用 LangChain 框架的智能查询 Agent,支持自动工具选择和推理"
         )
 
         # 初始化 Ollama LLM
@@ -47,12 +47,12 @@ class LangChainQueryAgent(BaseAgent):
         self.tog_tool = ToGTool()
         self.hybrid_tool = HybridQueryTool()
 
-        # 创建 Agent Prompt - 定义与LLM交互的消息结构
+        # 创建 Agent Prompt
         self.prompt = ChatPromptTemplate.from_messages([
-            ("system", self._get_system_prompt()),  # 系统角色消息，定义Agent的行为和规则
-            MessagesPlaceholder(variable_name="chat_history", optional=True),  # 对话历史占位符，可选，用于保持多轮对话上下文
-            ("human", "{input}"),                   # 人类用户输入占位符，接收用户的具体问题
-            MessagesPlaceholder(variable_name="agent_scratchpad"),  # Agent工作区占位符，用于存储工具调用和思考过程
+            ("system", self._get_system_prompt()),
+            MessagesPlaceholder(variable_name="chat_history", optional=True),
+            ("human", "{input}"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
         ])
 
         # 创建 Agent
@@ -67,8 +67,8 @@ class LangChainQueryAgent(BaseAgent):
             agent=self.agent,
             tools=self.tools,
             verbose=True,
-            max_iterations=20,  # 增加最大迭代次数以处理更复杂的查询
-            max_execution_time=300,  # 增加最大执行时间为5分钟
+            max_iterations=20,
+            max_execution_time=300,
             handle_parsing_errors=True,
             return_intermediate_steps=True
         )
@@ -77,30 +77,48 @@ class LangChainQueryAgent(BaseAgent):
 
     def _get_system_prompt(self) -> str:
         """获取系统提示"""
-        return """你是一个专业的知识图谱查询助手。你的任务是根据用户问题，选择最合适的查询工具来获取答案。
-        
+        return """你是一个专业的知识图谱查询助手。你的任务是根据用户问题,选择最合适的查询工具来获取答案。
+
         可用工具说明:
-        1. **graphrag_query**: 适用于简单的事实查询和信息检索，检索速度较快
-        2. **tog_query**: 适用于需要多步推理和逻辑链的复杂问题，检索速度较慢
-        3. **hybrid_query**: 适用于需要深度推理和广泛检索的复杂问题，检索速度最慢
-        
+        1. **graphrag_query**: 适用于简单的事实查询和信息检索,检索速度较快
+        2. **tog_query**: 适用于需要多步推理和逻辑链的复杂问题,检索速度较慢
+        3. **hybrid_query**: 适用于需要深度推理和广泛检索的复杂问题,检索速度最慢
+
         工具选择策略:
         - 简单问题 (如"什么是X"、"X的定义") → 使用 graphrag_query
         - 中等复杂问题 (如"X和Y的关系"、"X如何影响Y") → 使用 tog_query
         - 复杂问题 (如"分析X的多方面影响"、"比较X和Y的优缺点") → 使用 hybrid_query
-        
+
+        **答案格式要求** (重要):
+        1. 使用 Markdown 格式输出答案
+        2. 使用清晰的段落分隔,每个段落用空行分开
+        3. 使用列表、加粗等 Markdown 元素提高可读性
+        4. 多点内容使用编号列表 (1. 2. 3. ...) 或无序列表 (-)
+        5. 关键信息使用加粗强调
+        6. 保持简洁、结构化的回答风格
+
+        **答案结构示例**:
+        ```markdown
+        根据查询结果,这里是答案:
+
+        1. **第一点**: 详细说明
+        2. **第二点**: 详细说明
+        3. **第三点**: 详细说明
+
+        **总结**: 整体总结
+        ```
+
         重要提示:
         1. 首先分析问题复杂度
         2. 选择最合适的工具
-        3. 如果第一次查询失败或结果不满意，可以尝试其他工具
-        4. 提供清晰、结构化的答案
-        5. 如果查询失败，要提供有用的错误信息
-        
-        请始终以用户的问题为中心，提供准确、有用的答案。"""
+        3. 如果第一次查询失败或结果不满意,可以尝试其他工具
+        4. 严格按照上述 Markdown 格式要求输出答案
+        5. 如果查询失败,要提供有用的错误信息
+
+        请始终以用户的问题为中心,提供准确、有用、格式良好的答案。"""
 
     def can_handle(self, context: AgentContext) -> bool:
         """判断是否能处理该任务"""
-        # LangChain Agent 可以处理所有查询任务
         return True
 
     async def execute(self, context: AgentContext) -> AgentResult:
@@ -111,11 +129,10 @@ class LangChainQueryAgent(BaseAgent):
             logger.info(f"[{context.grag_id}] 🤖 LangChainQueryAgent 开始执行")
             logger.info(f"[{context.grag_id}] 💬 问题: {context.question}")
 
-            # 如果 grag_id 为空或为 default，则获取所有知识库并循环查询
+            # 如果 grag_id 为空或为 default,则获取所有知识库并循环查询
             if not context.grag_id or context.grag_id == "default":
-                logger.info("📚 grag_id 为空，开始获取知识库列表并循环查询")
+                logger.info("📚 grag_id 为空,开始获取知识库列表并循环查询")
 
-                # 获取知识库列表
                 knowledge_bases = await get_knowledge_bases()
 
                 if not knowledge_bases:
@@ -135,14 +152,12 @@ class LangChainQueryAgent(BaseAgent):
                     kb_grag_id = kb.get("graph_key") or kb.get("grag_id")
                     kb_name = kb.get("name", "未知知识库")
 
-                    # 检查是否获取到了有效的 grag_id
                     if not kb_grag_id:
-                        logger.warning(f"⚠️ 知识库 '{kb_name}' 缺少 graph_key 或 grag_id，跳过")
+                        logger.warning(f"⚠️ 知识库 '{kb_name}' 缺少 graph_key 或 grag_id,跳过")
                         continue
 
                     logger.info(f"[{kb_grag_id}] 🔍 尝试查询知识库: {kb_name}")
 
-                    # 创建新的上下文，使用当前知识库ID
                     kb_context = AgentContext(
                         grag_id=kb_grag_id,
                         question=context.question,
@@ -150,10 +165,8 @@ class LangChainQueryAgent(BaseAgent):
                         metadata=context.metadata
                     )
 
-                    # 执行查询（不包含验证逻辑）
                     result = await self._execute_single_query(kb_context, kb_name, validate_answer=False)
 
-                    # 在外层循环中进行大模型验证，避免每个知识库都验证
                     if result.data and result.data.get("answer"):
                         answer = result.data["answer"]
                         is_valid = await self._validate_answer(context.question, answer)
@@ -167,13 +180,12 @@ class LangChainQueryAgent(BaseAgent):
                             result.message = f"在知识库 '{kb_name}' 中查询成功"
                             return result
                         else:
-                            logger.info(f"[{kb_grag_id}] ⚠️ 知识库 '{kb_name}' 答案验证失败，继续尝试下一个")
+                            logger.info(f"[{kb_grag_id}] ⚠️ 知识库 '{kb_name}' 答案验证失败,继续尝试下一个")
                             continue
                     else:
-                        logger.info(f"[{kb_grag_id}] ⚠️ 知识库 '{kb_name}' 查询失败，继续尝试下一个")
+                        logger.info(f"[{kb_grag_id}] ⚠️ 知识库 '{kb_name}' 查询失败,继续尝试下一个")
                         continue
 
-                # 所有知识库都查询失败
                 logger.error("❌ 所有知识库查询都失败")
                 execution_time = time.time() - start_time
                 return AgentResult(
@@ -184,10 +196,8 @@ class LangChainQueryAgent(BaseAgent):
                     execution_time=execution_time
                 )
             else:
-                # 原有逻辑：指定知识库查询
                 logger.info(f"[{context.grag_id}] 🎯 执行指定知识库查询")
 
-                # 执行完整的查询流程
                 result = await self._execute_single_query(context, "指定知识库")
                 execution_time = time.time() - start_time
                 result.execution_time = execution_time
@@ -205,7 +215,6 @@ class LangChainQueryAgent(BaseAgent):
 
     def _prepare_input(self, context: AgentContext) -> Dict[str, Any]:
         """准备 Agent 输入"""
-        # 转换对话历史为 LangChain 格式
         chat_history = []
         for msg in context.conversation_history:
             if msg["role"] == "user":
@@ -213,7 +222,6 @@ class LangChainQueryAgent(BaseAgent):
             elif msg["role"] == "assistant":
                 chat_history.append(AIMessage(content=msg["content"]))
 
-        # 构建输入
         input_text = f"""
 知识库ID: {context.grag_id}
 用户问题: {context.question}
@@ -246,10 +254,9 @@ class LangChainQueryAgent(BaseAgent):
         output = result.get("output", "")
         intermediate_steps = result.get("intermediate_steps", [])
 
-        # 提取使用的工具
         tools_used = self._extract_tools_used(result)
 
-        logger.info(f"✅ 查询完成，使用的工具: {', '.join(tools_used)}")
+        logger.info(f"✅ 查询完成,使用的工具: {', '.join(tools_used)}")
         logger.info(f"⏱️ 总耗时: {execution_time:.2f}秒")
 
         return AgentResult(
@@ -279,7 +286,7 @@ class LangChainQueryAgent(BaseAgent):
         Args:
             context: 查询上下文
             kb_name: 知识库名称
-            validate_answer: 是否验证答案质量（默认True，设为False时跳过大模型验证）
+            validate_answer: 是否验证答案质量
 
         Returns:
             AgentResult: 查询结果
@@ -293,62 +300,105 @@ class LangChainQueryAgent(BaseAgent):
         method = await self._select_method(complexity, context.question)
 
         # 根据选择的方法执行查询
-        result = await self._execute_query_with_method(context.grag_id, context.question, method)
+        raw_result = await self._execute_query_with_method(context.grag_id, context.question, method)
 
-        # 记录使用的工具
+        # 🔥 新增: 格式化为 Markdown
+        # formatted_result = await self._format_to_markdown(context.question, raw_result)
+        formatted_result = raw_result
+
         tools_used = [method]
 
         execution_time = time.time() - start_time
 
-        # 根据 validate_answer 参数决定是否验证答案
         is_valid = True
         if validate_answer:
-            # 使用大模型验证答案质量
-            is_valid = await self._validate_answer(context.question, result)
+            is_valid = await self._validate_answer(context.question, formatted_result)
 
         return AgentResult(
             success=is_valid,
             data={
                 "question": context.question,
-                "answer": result,
+                "answer": formatted_result,  # 返回格式化后的结果
                 "grag_id": context.grag_id,
-                "kb_name": kb_name,
-                "tools_used": tools_used
+                "execution_time": execution_time,
+                "kb_name": kb_name
             },
             message="查询成功" if is_valid else "查询失败",
             execution_time=execution_time,
             metadata={
                 "complexity": complexity,
                 "method": method,
-                "tools_used": tools_used,
-                "kb_used": kb_name,
-                "kb_grag_id": context.grag_id
+                "tools_used": tools_used
             }
         )
 
+    async def _format_to_markdown(self, question: str, raw_answer: str) -> str:
+        """将原始答案格式化为 Markdown 格式
+
+        Args:
+            question: 原始问题
+            raw_answer: 原始答案
+
+        Returns:
+            str: Markdown 格式的答案
+        """
+        logger.info("📝 格式化答案为 Markdown...")
+
+        try:
+            from langchain_core.messages import HumanMessage
+
+            format_prompt = f"""请将以下答案重新格式化为清晰的 Markdown 格式。
+
+原始问题: {question}
+
+原始答案:
+{raw_answer}
+
+格式化要求:
+1. 使用清晰的段落分隔,每个段落用空行分开
+2. 使用 **粗体** 强调关键信息
+3. 使用编号列表 (1. 2. 3.) 或无序列表 (-) 组织多点内容
+4. 如果有总结,使用 **总结:** 标记
+5. 保持内容完整,不要删减信息
+6. 确保逻辑清晰,结构分明
+
+请直接输出格式化后的 Markdown 文本,不要添加任何额外说明。"""
+
+            # 使用 invoke 方法
+            response = self.llm.invoke([HumanMessage(content=format_prompt)])
+
+            formatted_answer = response.content.strip()
+            logger.info("✅ Markdown 格式化完成")
+            return formatted_answer
+
+        except Exception as e:
+            logger.error(f"Markdown 格式化失败: {e}")
+            # 如果格式化失败,返回原始答案
+            return raw_answer
+
     async def _analyze_complexity(self, question: str) -> str:
         """分析问题复杂度"""
-        from langchain_core.prompts import ChatPromptTemplate
-
         logger.info("📊 分析问题复杂度...")
 
-        prompt = ChatPromptTemplate.from_template(
-            "分析以下问题的复杂度，返回: simple, moderate, 或 complex\n问题: {question}"
-        )
+        try:
+            prompt = f"分析以下问题的复杂度,返回: simple, moderate, 或 complex\n问题: {question}"
 
-        chain = prompt | self.planning_llm
-        response = await chain.ainvoke({"question": question})
+            # 使用同步调用
+            response = self.planning_llm.invoke(prompt)
 
-        complexity = "moderate"
-        content = response.content.lower()
-        if "simple" in content:
-            complexity = "simple"
-        elif "complex" in content:
-            complexity = "complex"
+            complexity = "moderate"
+            content = response.content.lower()
+            if "simple" in content:
+                complexity = "simple"
+            elif "complex" in content:
+                complexity = "complex"
 
-        logger.info(f"✅ 复杂度: {complexity}")
+            logger.info(f"✅ 复杂度: {complexity}")
+            return complexity
 
-        return complexity
+        except Exception as e:
+            logger.error(f"分析复杂度失败: {e}")
+            return "moderate"  # 默认返回中等复杂度
 
     async def _select_method(self, complexity: str, question: str) -> str:
         """选择查询方法"""
@@ -356,7 +406,6 @@ class LangChainQueryAgent(BaseAgent):
 
         question_lower = question.lower()
 
-        # 检查显式指定
         if "tog" in question_lower or "思维图" in question_lower:
             method = "tog"
         elif "graphrag" in question_lower:
@@ -364,7 +413,6 @@ class LangChainQueryAgent(BaseAgent):
         elif "混合" in question_lower or "hybrid" in question_lower:
             method = "hybrid"
         else:
-            # 根据复杂度选择
             if complexity == "simple":
                 method = "graphrag"
             elif complexity == "complex":
@@ -397,70 +445,40 @@ class LangChainQueryAgent(BaseAgent):
             return error_msg
 
     async def _validate_answer(self, question: str, answer: str) -> bool:
-        """使用大模型验证答案质量
-
-        Args:
-            question: 原始问题
-            answer: 待验证的答案
-
-        Returns:
-            bool: 答案是否有效
-        """
+        """使用大模型验证答案质量"""
         logger.info("🤖 使用大模型验证答案质量...")
 
-        # 检查答案基本属性
         if not answer or not isinstance(answer, str):
             logger.info("❌ 答案为空或非字符串")
             return False
 
-        # 清理答案文本
         cleaned_answer = answer.strip()
 
-        # # 检查是否明显是错误信息
-        # error_indicators = [
-        #     "未找到", "not found", "no result",
-        #     "error", "exception", "failed", "not available",
-        #     "无法回答", "没有找到", "不存在", "暂无", "没有相关信息", "没有可用结果",
-        #     "没有检索到相关内容", "检索失败", "查询失败",
-        #     "Agent stopped due to max iterations", "max iterations"
-        # ]
-        #
-        # for indicator in error_indicators:
-        #     if indicator in cleaned_answer:
-        #         logger.info(f"❌ 答案包含错误指示符: {indicator}")
-        #         return False
-
-        # 如果答案长度太短，直接视为无效
         if len(cleaned_answer) < 20:
             logger.info(f"❌ 答案长度不足 ({len(cleaned_answer)} 字符)")
             return False
 
-        # 使用大模型评估答案质量
         try:
-            from langchain_core.prompts import ChatPromptTemplate
+            from langchain_core.messages import HumanMessage
 
-            validation_prompt = ChatPromptTemplate.from_template(
-                """请评估以下答案是否有效回答了用户的问题。
+            validation_prompt = f"""请评估以下答案是否有效回答了用户的问题。
                 
 用户问题: {question}
 
 AI回答: {answer}
 
-请仅回答 "VALID" 如果回答有效，否则回答 "INVALID"。判断标准：
+请仅回答 "VALID" 如果回答有效,否则回答 "INVALID"。判断标准:
 1. 回答是否直接针对问题
 2. 回答是否提供了有用信息
 3. 回答是否完整或至少提供了部分有用信息
 4. 回答是否不是拒绝回答或错误信息
 
 评估:"""
-            )
 
-            chain = validation_prompt | self.planning_llm
-            response = await chain.ainvoke({"question": question, "answer": answer})
+            # 使用 invoke 方法
+            response = self.planning_llm.invoke([HumanMessage(content=validation_prompt)])
 
-            # 解析大模型的评估结果
             content = response.content.strip().upper()
-            # 修复逻辑：必须包含 VALID 且不包含 INVALID，防止 "INVALID" 被错误判定为 True
             is_valid = "VALID" in content and "INVALID" not in content
 
             logger.info(f"✅ 大模型评估结果: {'有效' if is_valid else '无效'}")
@@ -468,39 +486,21 @@ AI回答: {answer}
 
         except Exception as e:
             logger.error(f"大模型验证答案时出错: {e}")
-            # 如果大模型验证失败，使用备用验证方法
             return self._fallback_validate_answer(answer)
 
     def _fallback_validate_answer(self, answer: str) -> bool:
         """备用答案验证方法"""
         logger.info("🔄 使用备用验证方法")
 
-        # 检查答案基本属性
         if not answer or not isinstance(answer, str):
             logger.info("❌ 答案为空或非字符串")
             return False
 
-        # 清理答案文本
         cleaned_answer = answer.strip()
 
-        # 检查长度
         if len(cleaned_answer) < 20:
             logger.info(f"❌ 答案长度不足 ({len(cleaned_answer)} 字符)")
             return False
-
-        # # 检查是否包含明显的错误信息
-        # error_indicators = [
-        #     "失败", "错误", "未找到", "not found", "no result",
-        #     "error", "exception", "failed", "not available", "暂时无法", "抱歉",
-        #     "无法回答", "没有找到", "不存在", "暂无", "没有相关信息", "没有可用结果",
-        #     "没有检索到相关内容", "检索失败", "查询失败",
-        #     "Agent stopped due to max iterations", "max iterations"
-        # ]
-        #
-        # for indicator in error_indicators:
-        #     if indicator in cleaned_answer:
-        #         logger.info(f"❌ 答案包含错误指示符: {indicator}")
-        #         return False
 
         logger.info("✅ 通过备用验证")
         return True

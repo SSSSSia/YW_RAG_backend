@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     llm_api_url: str = "http://localhost:11434"  # Ollama 默认服务地址，不需要额外的API路径
     llm_model: str = "qwen3:8b"
     entity_linking_threshold: float = 15.0
+    llm_timeout: int = 120
+    llm_max_retries: int = 3
 
     # GraphRAG配置
     graphrag_root: str = "../graphrag"

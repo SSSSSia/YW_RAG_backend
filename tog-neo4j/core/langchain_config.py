@@ -20,17 +20,20 @@ class LangChainConfig:
 
         # 初始化 LLM (使用 Ollama)
         self.llm = ChatOllama(
-            model=settings.LLM_MODEL,
+            model=settings.llm_model,
             temperature=0.7,
             base_url=settings.llm_api_url,
-            timeout=60
+            timeout=settings.llm_timeout,
+            num_retries=settings.llm_max_retries
         )
 
         # 用于规划的 LLM (低温度)
         self.planning_llm = ChatOllama(
-            model=settings.LLM_MODEL,
+            model=settings.llm_model,
             temperature=0.1,
             base_url=settings.llm_api_url,
+            timeout=settings.llm_timeout,
+            num_retries=settings.llm_max_retries
         )
 
         logger.info("✅ LangChain 配置初始化完成")

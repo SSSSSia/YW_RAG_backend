@@ -40,46 +40,48 @@ class ToGService:
         """加载提示词模板"""
         return {
             "entity_extraction": """Given the question: "{question}"
-Please extract all key entities mentioned in this question.
-Return only the entity names, separated by commas.
-Entities:""",
+            Please extract all key entities mentioned in this question.
+            Return only the entity names, separated by commas.
+            Entities:""",
 
             "relation_selection": """Given the question: "{question}"
-Current entities: {entities}
-Available relations: {relations}
+            Current entities: {entities}
+            Available relations: {relations}
 
-Please select the top {beam_width} most relevant relations that help answer the question.
-Return only the relation names, separated by commas.
-Selected relations:""",
+            Please select the top {beam_width} most relevant relations that help answer the question.
+            Return only the relation names, separated by commas.
+            Selected relations:""",
 
             "entity_selection": """Given the question: "{question}"
-Current relation: {relation}
-Available entities: {entities}
+            Current relation: {relation}
+            Available entities: {entities}
 
-Please select the top {beam_width} most relevant entities that help answer the question.
-Return only the entity names, separated by commas.
-Selected entities:""",
+            Please select the top {beam_width} most relevant entities that help answer the question.
+            Return only the entity names, separated by commas.
+            Selected entities:""",
 
             "reasoning_evaluation": """Given the question: "{question}"
-Retrieved knowledge paths:
-{paths}
+            Retrieved knowledge paths:
+            {paths}
 
-Can you answer the question with sufficient confidence based on these paths and your knowledge?
-Answer with only "Yes" or "No".
-Answer:""",
+            Can you answer the question with sufficient confidence based on these paths and your knowledge?
+            Answer with only "Yes" or "No".
+            Answer:""",
 
-            "answer_generation": """Based on the question and retrieved knowledge paths, please provide a clear answer.
+            "answer_generation": """Based on the question and retrieved knowledge paths, please provide a clear, Markdown-formatted answer suitable for frontend rendering.
 
-Requirements:
-1. Organize the answer into numbered points (1. 2. 3. ...)
-2. Each point should start on a new line
-3. Provide a concise and structured response
+            Requirements:
+            1. Use Markdown syntax for better readability (e.g., **bold** key terms, `code` for entities/paths).
+            2. Organize the answer into a numbered list (1. 2. 3. ...).
+            3. Ensure each point starts on a new line.
+            4. Provide a concise and structured response.
 
-Question: {question}
-Knowledge paths:
-{paths}
+            Question: {question}
+            Knowledge paths:
+            {paths}
 
-Answer:"""
+            Answer:"""
+
         }
 
     def _extract_topic_entities(self, question: str) -> List[str]:
