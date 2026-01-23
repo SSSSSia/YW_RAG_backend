@@ -2,6 +2,7 @@
 LangChain 配置和初始化
 """
 from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_classic.memory import ConversationBufferMemory
 from langchain_core.callbacks import StdOutCallbackHandler
@@ -37,6 +38,52 @@ class LangChainConfig:
         )
 
         logger.info("✅ LangChain 配置初始化完成")
+
+    # ==================== 硅基流动API方法 ====================
+
+    def get_siliconflow_llm(self, temperature: float = 0.7) -> ChatOpenAI:
+        """
+        获取硅基流动LLM实例
+
+        Args:
+            temperature: 温度参数
+
+        Returns:
+            ChatOpenAI实例
+        """
+        if not settings.siliconflow_api_key:
+            logger.warning("硅基流动API密钥未设置，请在.env文件中设置SILICONFLOW_API_KEY")
+
+        return ChatOpenAI(
+            model=settings.siliconflow_model,
+            temperature=temperature,
+            openai_api_key=settings.siliconflow_api_key,
+            openai_api_base=settings.siliconflow_api_url,
+            timeout=settings.siliconflow_timeout,
+            max_retries=settings.siliconflow_max_retries
+        )
+
+    def get_siliconflow_planning_llm(self, temperature: float = 0.1) -> ChatOpenAI:
+        """
+        获取硅基流动规划LLM实例（低温度）
+
+        Args:
+            temperature: 温度参数
+
+        Returns:
+            ChatOpenAI实例
+        """
+        if not settings.siliconflow_api_key:
+            logger.warning("硅基流动API密钥未设置，请在.env文件中设置SILICONFLOW_API_KEY")
+
+        return ChatOpenAI(
+            model=settings.siliconflow_model,
+            temperature=temperature,
+            openai_api_key=settings.siliconflow_api_key,
+            openai_api_base=settings.siliconflow_api_url,
+            timeout=settings.siliconflow_timeout,
+            max_retries=settings.siliconflow_max_retries
+        )
 
     def create_memory(self, session_id: str = None) -> ConversationBufferMemory:
         """创建对话内存"""

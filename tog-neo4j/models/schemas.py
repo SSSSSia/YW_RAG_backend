@@ -108,3 +108,8 @@ class AgentChatRequest(BaseModel):
     company_id: Optional[str]=None
     grag_id: Optional[str] = None
     message_items: Optional[List[MessageItem]] = None
+
+
+class SiliconFlowQueryRequest(BaseModel):
+    """硅基流动API直接查询请求"""
+    question: str = Field(..., description="用户问题")

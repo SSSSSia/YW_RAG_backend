@@ -87,7 +87,8 @@ class ToGService:
     def _extract_topic_entities(self, question: str) -> List[str]:
         """从问题中提取主题实体"""
         prompt = self.prompts["entity_extraction"].format(question=question)
-        response = llm_client.chat(prompt)
+        # response = llm_client.chat(prompt)
+        response = llm_client.chat_with_siliconflow(prompt)
         raw_entities = [e.strip() for e in response.split(",") if e.strip()]
         logger.info(f"LLM提取的原始实体: {raw_entities}")
 
@@ -151,7 +152,8 @@ class ToGService:
                     relations=", ".join(all_relations),
                     beam_width=self.max_width
                 )
-                response = llm_client.chat(prompt)
+                # response = llm_client.chat(prompt)
+                response = llm_client.chat_with_siliconflow(prompt)
                 selected_relations = [r.strip() for r in response.split(",") if r.strip()]
                 selected_relations = selected_relations[:self.max_width]
 
@@ -187,7 +189,8 @@ class ToGService:
                         entities=", ".join(target_candidates[:20]),
                         beam_width=self.max_width
                     )
-                    response = llm_client.chat(prompt)
+                    # response = llm_client.chat(prompt)
+                    response = llm_client.chat_with_siliconflow(prompt)
                     selected_targets = [e.strip() for e in response.split(",") if e.strip()]
                     selected_targets = selected_targets[:self.max_width]
 
@@ -249,7 +252,8 @@ class ToGService:
             paths=paths_text
         )
 
-        response = llm_client.chat(prompt).lower()
+        # response = llm_client.chat(prompt).lower()
+        response = llm_client.chat_with_siliconflow(prompt).lower()
         return "yes" in response
 
     def _generate_answer(self, question: str, paths: List[List[Dict]]) -> str:
@@ -260,7 +264,7 @@ class ToGService:
             paths=paths_text
         )
 
-        return llm_client.chat(prompt, temperature=0.1)
+        return llm_client.chat_with_siliconflow(prompt, temperature=0.1)
 
     def reason(self, question: str) -> Dict[str, Any]:
         """ToG主推理流程"""
