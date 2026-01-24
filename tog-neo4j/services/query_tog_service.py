@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from utils.logger import logger,log_step
-from core.database import db_manager
+from core.neo4j_db import db_manager
 from core.llm_client import llm_client
 from scripts.ywretriever import Retriever, entity_linking
 from core.config import settings

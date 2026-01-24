@@ -31,15 +31,24 @@ class Settings(BaseSettings):
     llm_max_retries: int = 3
 
     # 硅基流动API配置
-    siliconflow_api_url: str = "https://api.siliconflow.cn/v1"
-    siliconflow_api_key: str = ""  # 请在.env文件中设置 SILICONFLOW_API_KEY
-    siliconflow_model: str = "Qwen/Qwen2.5-7B-Instruct"  # 默认使用Qwen2.5-7B
+    siliconflow_api_url: str
+    siliconflow_api_key: str
+    siliconflow_model: str
     siliconflow_timeout: int = 120
     siliconflow_max_retries: int = 3
 
     # GraphRAG配置
     graphrag_root: str = "../graphrag"
     base_settings_path: str = "../graphrag/settings.yaml"
+
+    # MySQL配置
+    mysql_host: str
+    mysql_port: int
+    mysql_user: str
+    mysql_password: str
+    mysql_database: str
+    mysql_table: str
+    mysql_charset: str
 
     class Config:
         env_file = ".env"

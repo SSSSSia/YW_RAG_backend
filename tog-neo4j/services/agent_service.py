@@ -146,5 +146,13 @@ class AgentService:
         }
 
 
-# 全局 Agent 服务实例
-agent_service = AgentService()
+# 全局 Agent 服务实例（延迟初始化）
+_agent_service_instance: Optional[AgentService] = None
+
+
+def get_agent_service() -> AgentService:
+    """获取 Agent 服务单例"""
+    global _agent_service_instance
+    if _agent_service_instance is None:
+        _agent_service_instance = AgentService()
+    return _agent_service_instance

@@ -12,7 +12,7 @@ from core.config import settings
 from scripts.deal_graph import main as deal_graph_main
 from scripts.insert_to_neo4j import main as insert_neo4j_main
 from scripts.ywretriever import crtDenseRetriever
-from core.database import db_manager
+from core.neo4j_db import db_manager
 import sys
 
 

@@ -4,6 +4,7 @@
 from typing import Any, Optional, List
 from pydantic import BaseModel, ConfigDict, Field
 from enum import Enum
+from datetime import datetime
 
 
 class ResponseCode(str, Enum):
@@ -15,6 +16,7 @@ class ResponseCode(str, Enum):
     UNAUTHORIZED = "401"
     FORBIDDEN = "403"
     BAD_REQUEST = "400"
+    ALARM = "300001"  # AI审计告警
 
 
 class R(BaseModel):
@@ -113,3 +115,32 @@ class AgentChatRequest(BaseModel):
 class SiliconFlowQueryRequest(BaseModel):
     """硅基流动API直接查询请求"""
     question: str = Field(..., description="用户问题")
+
+
+# ==================== AI审计和总结接口相关模型 ====================
+
+class CheckRequest(BaseModel):
+    """AI审计请求"""
+    sessionID: str = Field(..., description="会话ID（设备ID）")
+    operation: str = Field(..., description="图片对应的操作")
+
+
+class AlarmData(BaseModel):
+    """告警信息数据"""
+    equipment_asset: str = Field(..., description="设备编号（会话ID）")
+    alarm: str = Field(..., description="告警信息")
+    work_content: str = Field(..., description="本次工作内容")
+    alarm_time: datetime = Field(..., description="告警时间")
+    risk_level: str = Field(default="medium", description="风险等级: high/medium/low")
+
+
+class SummaryRequest(BaseModel):
+    """AI总结请求"""
+    sessionID: str = Field(..., description="会话ID（设备ID）")
+
+
+class WorkOrderData(BaseModel):
+    """工单数据"""
+    ds_id: int = Field(..., description="设备ID（从sessionID转换而来）")
+    work_class: int = Field(..., description="工单分类：1=软件，2=硬件")
+    work_notice: str = Field(..., description="工作内容总结")

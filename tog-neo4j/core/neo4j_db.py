@@ -97,11 +97,11 @@ class Neo4jConnector:
         """获取实体的邻居节点"""
         query = f"""
         MATCH path = (n)-[r*1..{depth}]-(m)
-        WHERE n.name = $entity_name 
-          AND n.grag_id = $grag_id 
+        WHERE n.name = $entity_name
+          AND n.grag_id = $grag_id
           AND m.grag_id = $grag_id
           AND all(rel in r WHERE rel.grag_id = $grag_id)
-        RETURN DISTINCT 
+        RETURN DISTINCT
             n.name as source_entity,
             type(r[0]) as relation,
             m.name as target_entity
@@ -116,12 +116,12 @@ class Neo4jConnector:
         MATCH path = shortestPath(
             (s)-[*1..{max_depth}]-(t)
         )
-        WHERE s.name = $source 
+        WHERE s.name = $source
           AND t.name = $target
           AND s.grag_id = $grag_id
           AND t.grag_id = $grag_id
           AND all(rel in relationships(path) WHERE rel.grag_id = $grag_id)
-        RETURN 
+        RETURN
             [node in nodes(path) | node.name] as node_names,
             [rel in relationships(path) | type(rel)] as relation_types,
             length(path) as path_length

@@ -7,6 +7,7 @@ from core.config import settings
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages.ai import AIMessage
 
 
 class LLMClient:
@@ -156,6 +157,68 @@ class LLMClient:
         except Exception as e:
             logger.error(f"硅基流动API调用失败: {e}")
             raise Exception(f"硅基流动大模型调用失败: {str(e)}")
+
+    def chat_with_vision(self, prompt: str, image_base64: str, temperature: float = 0.3,
+                         max_tokens: int = 2000, api_key: str = None, model: str = None,
+                         system_prompt: str = None) -> str:
+        """
+        使用视觉模型分析图片并回答问题
+
+        Args:
+            prompt: 用户提示词
+            image_base64: 图片的base64编码（带data URL前缀）
+            temperature: 温度参数
+            max_tokens: 最大token数
+            api_key: API密钥
+            model: 模型名称（需要使用支持视觉的模型，如 Qwen/Qwen2-VL-7B-Instruct）
+            system_prompt: 系统提示词
+
+        Returns:
+            模型响应文本
+        """
+        try:
+            # 使用传入的参数或配置中的默认值
+            sf_api_key = api_key or settings.siliconflow_api_key
+            # 默认使用视觉模型
+            sf_model = model or "Qwen/Qwen2-VL-7B-Instruct"
+
+            # 默认系统提示词
+            default_system_prompt = "你是一个专业的视觉分析助手，能够理解图片内容并根据图片回答问题。"
+
+            if not sf_api_key:
+                logger.error("硅基流动API密钥未设置")
+                return ""
+
+            # 构建多模态消息内容
+            message_content = [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": image_base64}}
+            ]
+
+            # 创建硅基流动客户端
+            sf_client = ChatOpenAI(
+                model=sf_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                openai_api_key=sf_api_key,
+                openai_api_base=settings.siliconflow_api_url,
+                timeout=settings.siliconflow_timeout,
+                max_retries=settings.siliconflow_max_retries
+            )
+
+            # 构建消息列表
+            messages = []
+            if system_prompt:
+                messages.append(SystemMessage(content=system_prompt))
+            else:
+                messages.append(SystemMessage(content=default_system_prompt))
+            messages.append(HumanMessage(content=message_content))
+
+            response = sf_client.invoke(messages)
+            return response.content.strip()
+        except Exception as e:
+            logger.error(f"视觉模型调用失败: {e}")
+            return ""
 
 
 # 全局LLM客户端实例

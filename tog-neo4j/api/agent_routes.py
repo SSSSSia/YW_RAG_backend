@@ -3,7 +3,7 @@ Agent 查询接口
 """
 from fastapi import APIRouter, HTTPException
 from models.schemas import R, AgentChatRequest
-from services.agent_service import agent_service
+from services.agent_service import get_agent_service
 from utils.logger import logger
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -72,7 +72,7 @@ async def agent_chat(request: AgentChatRequest):
         #    - 自动调用 get_knowledge_bases 获取所有可用知识库
         #    - 将知识库列表传递给 Agent
         #    - Agent 内部会实现优先查询指定 grag_id，失败后回退查询其他知识库的逻辑
-        service_result = await agent_service.process_request(
+        service_result = await get_agent_service().process_request(
             grag_id=request.grag_id or "default",
             question=question,
             conversation_history=conversation_history,
@@ -177,7 +177,7 @@ async def agent_chat_with_name(agent_name: str, request: AgentChatRequest):
         }
 
         # 调用 AgentService，指定 agent_name
-        service_result = await agent_service.process_request(
+        service_result = await get_agent_service().process_request(
             grag_id=request.grag_id or "default",
             question=question,
             conversation_history=conversation_history,
@@ -240,7 +240,7 @@ async def agent_health():
     """
     try:
         # 通过 AgentService 检查可用 Agent
-        agents_info = agent_service.list_available_agents()
+        agents_info = get_agent_service().list_available_agents()
 
         if agents_info.get("total", 0) > 0:
             return R.ok(
@@ -271,7 +271,7 @@ async def list_agents():
     列出所有可用的 Agent 及其能力
     """
     try:
-        agents_info = agent_service.list_available_agents()
+        agents_info = get_agent_service().list_available_agents()
 
         return R.ok(
             message="获取Agent列表成功",
