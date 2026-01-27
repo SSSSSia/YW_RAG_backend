@@ -1,7 +1,12 @@
 """
-AI审计服务（简化版）- 完全基于LLM的风险审计，使用MySQL存储操作记录
+AI审计服务（优化版）- 完全基于LLM的风险审计，使用MySQL存储操作记录
+性能优化：
+1. 合并风险审计和操作总结为一次LLM调用
+2. 内存中直接转换图片，减少I/O操作
 """
+import os
 import json
+import base64
 from datetime import datetime
 from typing import Optional, Dict
 
@@ -76,17 +81,27 @@ class AuditService:
                 logger.info("=" * 60)
                 return R.ok(message="忽略松开事件", data=_build_response_data(sessionID))
 
-            # 保存图片到会话目录
-            log_step(1, 4, "保存图片", sessionID)
+            # 【优化】在内存中直接转换图片为base64，避免重复I/O
+            log_step(1, 3, "准备图片数据", sessionID)
             filename = pic_filename or f"{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg"
-            image_path = get_session_storage_service().save_image(sessionID, filename, image_data)
 
-            # 读取图片并转换为base64
-            log_step(2, 4, "准备图片数据", sessionID)
-            image_base64 = get_session_storage_service().get_image_base64(image_path)
-            if not image_base64:
-                logger.error(f"[AuditService] [{sessionID}] ❌ 图片读取失败")
-                return R.error(message="图片读取失败", code="500", data=_build_response_data(sessionID))
+            # 判断图片MIME类型（根据文件扩展名）
+            ext = os.path.splitext(filename)[1].lower() if '.' in filename else '.jpg'
+            mime_type = {
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".png": "image/png",
+                ".gif": "image/gif",
+                ".bmp": "image/bmp"
+            }.get(ext, "image/jpeg")
+
+            # 转换为base64并添加data URL前缀
+            base64_str = base64.b64encode(image_data).decode('utf-8')
+            image_base64 = f"data:{mime_type};base64,{base64_str}"
+
+            # 保存图片到会话目录
+            log_step(2, 3, "保存图片", sessionID)
+            image_path = get_session_storage_service().save_image(sessionID, filename, image_data)
 
             # 执行纯LLM风险审计（包含数据库保存）
             return await self._llm_risk_audit(
@@ -171,22 +186,17 @@ class AuditService:
         process_name: Optional[str] = None
     ) -> R:
         """
-        纯LLM风险审计（核心逻辑）
+        纯LLM风险审计（核心逻辑 - 优化版）
 
-        直接使用LLM判断：
-        1. 当前操作是否有风险
-        2. 风险等级（high/medium/low/none）
-        3. 生成告警消息（如果有风险）
-        4. 生成操作总结
-        5. 保存操作记录到MySQL数据库
+        【性能优化】合并两次LLM调用为一次：
+        1. 同时获取风险判断和操作总结
+        2. 减少视觉模型调用次数（从2次→1次）
+        3. 保存操作记录到MySQL数据库
         """
-        log_step(3, 4, "LLM智能风险审计", sessionID)
+        log_step(3, 3, "LLM智能审计（风险+总结）", sessionID)
 
-        # 调用LLM进行风险判断
-        audit_result = await self._audit_operation_risk(sessionID, audit_opt, image_base64)
-
-        # 生成操作总结
-        summary = await self._generate_summary(sessionID, audit_opt, image_base64)
+        # 【优化】一次LLM调用同时完成风险审计和总结生成
+        audit_result, summary = await self._audit_and_summary(sessionID, audit_opt, image_base64)
 
         # 保存操作记录到数据库
         log_step(4, 4, "保存操作记录到数据库", sessionID)
@@ -218,7 +228,7 @@ class AuditService:
 
             return R.fail(
                 message="发现安全风险",
-                code="300001",
+                code="30001",
                 data=result_data.to_api_response()
             )
         else:
@@ -240,23 +250,25 @@ class AuditService:
 
     # ==================== 私有方法：LLM调用 ====================
 
-    async def _audit_operation_risk(
+    async def _audit_and_summary(
         self,
         sessionID: str,
         audit_opt: AuditOpt,
         image_base64: str
-    ) -> Dict:
+    ) -> tuple:
         """
-        使用LLM审计操作的风险
+        【优化】一次LLM调用同时完成风险审计和操作总结
 
-        这是核心的审计逻辑，完全依赖LLM的视觉理解和推理能力
+        返回: (audit_result, summary)
+        - audit_result: {"has_risk": bool, "risk_level": str, "alarm_message": str}
+        - summary: str (操作总结)
         """
         event_content_display = self._format_event_content(audit_opt.event_content)
 
-        # 获取最近的操作历史作为上下文（最近20条操作）
+        # 【优化】获取最近的操作历史作为上下文（最近10条，减少token消耗）
         recent_records = get_operation_db().get_records_by_session(sessionID)
         recent_operations = []
-        for record in recent_records[-20:]:  # 取最近20条
+        for record in recent_records[-10:]:  # 从20条减少到10条
             try:
                 op_data = json.loads(record['operation'])
                 recent_operations.append({
@@ -271,11 +283,11 @@ class AuditService:
         history_context = ""
         if recent_operations:
             history_context = "\n\n【最近操作历史】\n"
-            for i, op in enumerate(recent_operations[-10:], 1):  # 只显示最近10条
+            for i, op in enumerate(recent_operations[-5:], 1):  # 只显示最近5条
                 history_context += f"{i}. {op['event_type']} - {op['summary']}\n"
 
-        # 精简版系统提示词，针对 flash 模型优化
-        system_prompt = """你是运维安全审计AI，判断操作是否有风险。
+        # 优化后的系统提示词（合并版）
+        system_prompt = """你是运维安全审计AI，需要同时完成风险判断和操作总结。
 
 【正常流程（不报错）】
 1. 系统重装：点击安装界面、语言选择、磁盘配置、Root密码设置、开始安装、许可协议
@@ -310,129 +322,99 @@ class AuditService:
 - 根据操作历史判断是否在执行流程
 
 【输出格式】纯JSON（不要```）：
-{"has_risk": true/false, "risk_level": "high/medium/low/none", "alarm_message": "原因（20-100字）"}"""
+{
+    "has_risk": true/false,
+    "risk_level": "high/medium/low/none",
+    "alarm_message": "风险原因（20-100字，无风险时填空字符串）",
+    "summary": "操作总结（一句话30字以内，说明操作类型和目标）"
+}"""
 
-        user_prompt = f"""请审计以下运维操作：
+        user_prompt = f"""请审计以下运维操作并生成总结：
 {history_context}
 
 【当前待审计的操作】
 事件类型：{audit_opt.event_type}
 事件详情：{event_content_display}
 
-请结合截图内容、事件类型和最近的操作历史，判断该操作是否存在安全风险，并严格按JSON格式返回结果。
+请结合截图内容、事件类型和最近的操作历史：
+1. 判断该操作是否存在安全风险
+2. 生成简洁的操作总结（一句话30字以内）
 
 特别注意：
 1. 先根据历史操作判断当前是否正在执行系统重装或密码重置流程
 2. 如果正在执行这些流程且当前操作是流程的正常步骤，应判定为安全操作（has_risk=false, risk_level="none"）
-3. 如果明显偏离流程或存在其他安全风险，才报告风险"""
+3. 如果明显偏离流程或存在其他安全风险，才报告风险
+4. 严格按照JSON格式返回所有字段"""
 
         try:
-            # 针对 flash 模型优化：提高温度以增加推理多样性，增加 token 限制
+            # 【优化】一次视觉模型调用完成所有任务
             response = llm_client.chat_with_vision(
                 prompt=user_prompt,
                 image_base64=image_base64,
-                temperature=0.3,  # 从 0.1 提高到 0.3，让 flash 模型更有可能输出风险判断
-                max_tokens=800,   # 从 500 提高到 800，确保有足够空间输出详细判断
+                temperature=0.3,
+                max_tokens=1000,  # 增加token以同时输出风险和总结
                 system_prompt=system_prompt
             )
 
             if not response:
-                logger.warning(f"[AuditService] [{sessionID}] LLM未返回响应，使用默认安全值")
-                return {"has_risk": False, "risk_level": "none", "alarm_message": ""}
+                logger.warning(f"[AuditService] [{sessionID}] LLM未返回响应，使用默认值")
+                return self._get_default_result(audit_opt)
 
             result = self._parse_json_response(response)
             if not result:
-                logger.warning(f"[AuditService] [{sessionID}] JSON解析失败，使用默认安全值")
-                return {"has_risk": False, "risk_level": "none", "alarm_message": ""}
+                logger.warning(f"[AuditService] [{sessionID}] JSON解析失败，使用默认值")
+                return self._get_default_result(audit_opt)
 
-            return {
+            audit_result = {
                 "has_risk": result.get("has_risk", False),
                 "risk_level": result.get("risk_level", "none"),
                 "alarm_message": result.get("alarm_message", "")
             }
+            summary = result.get("summary", self._get_default_summary(audit_opt))
+
+            return audit_result, summary
 
         except Exception as e:
-            logger.error(f"[AuditService] [{sessionID}] 风险审计失败: {e}")
-            # 解析失败时的保守策略：使用关键词匹配
-            error_keywords = [
-                "删除", "delete", "drop", "truncate",
-                "格式化", "format", "rm -rf",
-                "shutdown", "停止", "stop"
-            ]
-            event_text = audit_opt.event_content.lower()
-            has_risk = any(keyword.lower() in event_text for keyword in error_keywords)
+            logger.error(f"[AuditService] [{sessionID}] 审计失败: {e}")
+            return self._get_default_result(audit_opt)
 
-            if has_risk:
-                return {
-                    "has_risk": True,
-                    "risk_level": "medium",
-                    "alarm_message": "检测到可能的危险操作关键词"
-                }
-            else:
-                return {
-                    "has_risk": False,
-                    "risk_level": "none",
-                    "alarm_message": ""
-                }
+    def _get_default_result(self, audit_opt: AuditOpt) -> tuple:
+        """返回默认的审计结果（降级策略）"""
+        # 关键词匹配作为降级策略
+        error_keywords = [
+            "删除", "delete", "drop", "truncate",
+            "格式化", "format", "rm -rf",
+            "shutdown", "停止", "stop"
+        ]
+        event_text = audit_opt.event_content.lower()
+        has_risk = any(keyword.lower() in event_text for keyword in error_keywords)
 
-    async def _generate_summary(
-        self,
-        sessionID: str,
-        audit_opt: AuditOpt,
-        image_base64: str
-    ) -> str:
-        """
-        生成操作总结（简洁版）
+        if has_risk:
+            audit_result = {
+                "has_risk": True,
+                "risk_level": "medium",
+                "alarm_message": "检测到可能的危险操作关键词"
+            }
+        else:
+            audit_result = {
+                "has_risk": False,
+                "risk_level": "none",
+                "alarm_message": ""
+            }
 
-        用一句话概括当前操作的内容
-        """
-        try:
-            event_content_display = self._format_event_content(audit_opt.event_content)
+        summary = self._get_default_summary(audit_opt)
+        return audit_result, summary
 
-            # 根据event_type生成不同的总结描述
-            if audit_opt.event_type == "ws_mouse_click":
-                operation_desc = f"鼠标点击操作，坐标信息：{event_content_display}"
-            elif audit_opt.event_type == "ws_keyboard":
-                operation_desc = f"键盘输入操作，按键信息：{event_content_display}"
-            elif "command" in audit_opt.event_type.lower():
-                operation_desc = f"命令执行操作：{event_content_display}"
-            else:
-                operation_desc = f"{audit_opt.event_type}操作：{event_content_display}"
-
-            summary_prompt = f"""请用一句话（30字以内）概括这个运维操作：
-
-{operation_desc}
-
-要求：简洁明了，说明操作类型和主要目标。"""
-
-            summary = llm_client.chat_with_vision(
-                prompt=summary_prompt,
-                image_base64=image_base64,
-                temperature=0.3,
-                max_tokens=150,
-                system_prompt="你是一个运维操作记录助手，擅长简洁概括操作内容。"
-            )
-
-            # 如果LLM返回为空，使用默认描述
-            if not summary or len(summary.strip()) == 0:
-                if audit_opt.event_type == "ws_mouse_click":
-                    return "鼠标点击操作"
-                elif audit_opt.event_type == "ws_keyboard":
-                    return "键盘输入操作"
-                else:
-                    return f"{audit_opt.event_type}操作"
-
-            return summary.strip()
-
-        except Exception as e:
-            logger.error(f"[AuditService] [{sessionID}] 生成总结失败: {e}")
-            # 返回基础描述
-            if audit_opt.event_type == "ws_mouse_click":
-                return "鼠标点击操作"
-            elif audit_opt.event_type == "ws_keyboard":
-                return "键盘输入操作"
-            else:
-                return f"{audit_opt.event_type}操作"
+    def _get_default_summary(self, audit_opt: AuditOpt) -> str:
+        """生成默认的操作总结（无LLM调用）"""
+        if audit_opt.event_type == "ws_mouse_click":
+            return "鼠标点击操作"
+        elif audit_opt.event_type == "ws_keyboard":
+            return "键盘输入操作"
+        elif "command" in audit_opt.event_type.lower():
+            return "命令执行操作"
+        else:
+            return f"{audit_opt.event_type}操作"
 
     # ==================== 私有方法：工具函数 ====================
 

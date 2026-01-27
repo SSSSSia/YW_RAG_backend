@@ -16,7 +16,7 @@ class ResponseCode(str, Enum):
     UNAUTHORIZED = "401"
     FORBIDDEN = "403"
     BAD_REQUEST = "400"
-    ALARM = "300001"  # AI审计告警
+    ALARM = "30001"  # AI审计告警
 
 
 class R(BaseModel):
