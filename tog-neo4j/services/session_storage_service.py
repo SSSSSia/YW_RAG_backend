@@ -41,6 +41,10 @@ class SessionStorageService:
         images_dir.mkdir(parents=True, exist_ok=True)
         return images_dir
 
+    def _get_process_state_file(self, session_id: str) -> Path:
+        """获取会话流程状态文件路径"""
+        return self._get_session_dir(session_id) / "process_state.json"
+
     def save_image(self, session_id: str, filename: str, image_data: bytes) -> str:
         """
         保存图片到会话目录
@@ -162,6 +166,95 @@ class SessionStorageService:
         except Exception as e:
             logger.error(f"读取图片失败: {e}")
             return None
+
+    # ==================== 流程状态管理方法 ====================
+
+    def save_session_process_state(
+        self,
+        session_id: str,
+        process_name: str,
+        valid_operations: List[str]
+    ) -> None:
+        """
+        保存session的流程状态
+
+        Args:
+            session_id: 会话ID
+            process_name: 操作流程名称
+            valid_operations: 该流程中所有有效操作的列表
+        """
+        try:
+            state_file = self._get_process_state_file(session_id)
+
+            state_data = {
+                "process_name": process_name,
+                "valid_operations": valid_operations,
+                "current_operations": [],  # 已执行的操作列表
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat()
+            }
+
+            with open(state_file, "w", encoding="utf-8") as f:
+                json.dump(state_data, f, ensure_ascii=False, indent=2)
+
+            logger.info(f"流程状态保存成功: {session_id} -> {process_name} ({len(valid_operations)}个有效操作)")
+        except Exception as e:
+            logger.error(f"保存流程状态失败: {e}")
+            raise
+
+    def get_session_process_state(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """
+        获取session的流程状态
+
+        Args:
+            session_id: 会话ID
+
+        Returns:
+            流程状态字典，如果不存在则返回None
+        """
+        try:
+            state_file = self._get_process_state_file(session_id)
+
+            if not state_file.exists():
+                logger.info(f"流程状态文件不存在: {session_id}")
+                return None
+
+            with open(state_file, "r", encoding="utf-8") as f:
+                state_data = json.load(f)
+
+            logger.info(f"获取流程状态成功: {session_id} -> {state_data.get('process_name')}")
+            return state_data
+        except Exception as e:
+            logger.error(f"获取流程状态失败: {e}")
+            return None
+
+    def add_operation_to_session(self, session_id: str, operation: str) -> None:
+        """
+        添加操作到session的已执行列表
+
+        Args:
+            session_id: 会话ID
+            operation: 操作描述
+        """
+        try:
+            state_data = self.get_session_process_state(session_id)
+            if not state_data:
+                logger.warning(f"无法添加操作：流程状态不存在: {session_id}")
+                return
+
+            # 避免重复添加
+            if operation not in state_data.get("current_operations", []):
+                state_data["current_operations"].append(operation)
+                state_data["updated_at"] = datetime.now().isoformat()
+
+                # 保存更新后的状态
+                state_file = self._get_process_state_file(session_id)
+                with open(state_file, "w", encoding="utf-8") as f:
+                    json.dump(state_data, f, ensure_ascii=False, indent=2)
+
+                logger.info(f"操作已添加到已执行列表: {session_id} -> {operation}")
+        except Exception as e:
+            logger.error(f"添加操作到session失败: {e}")
 
 
 # 全局会话存储服务实例（延迟初始化）

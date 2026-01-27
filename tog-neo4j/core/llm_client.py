@@ -180,7 +180,7 @@ class LLMClient:
             # 使用传入的参数或配置中的默认值
             sf_api_key = api_key or settings.siliconflow_api_key
             # 默认使用视觉模型
-            sf_model = model or "Qwen/Qwen2-VL-7B-Instruct"
+            sf_model = model or "zai-org/GLM-4.6V"
 
             # 默认系统提示词
             default_system_prompt = "你是一个专业的视觉分析助手，能够理解图片内容并根据图片回答问题。"

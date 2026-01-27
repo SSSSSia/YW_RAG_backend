@@ -118,11 +118,18 @@ class SiliconFlowQueryRequest(BaseModel):
 
 
 # ==================== AI审计和总结接口相关模型 ====================
+class AuditOpt(BaseModel):
+    """审计操作数据模型"""
+    event_time: str = Field(..., description="事件时间", alias="eventTime")
+    event_type: str = Field(..., description="事件类型", alias="eventType")
+    event_content: str = Field(..., description="事件内容", alias="eventContent")
+    event_status: str = Field(..., description="事件状态", alias="eventStatus")
+    device_id: str = Field(..., description="设备ID", alias="deviceId")
+    device_ip: str = Field(..., description="设备IP", alias="deviceIp")
+    user: str = Field(..., description="用户")
 
-class CheckRequest(BaseModel):
-    """AI审计请求"""
-    sessionID: str = Field(..., description="会话ID（设备ID）")
-    operation: str = Field(..., description="图片对应的操作")
+    class Config:
+        populate_by_name = True  # 允许使用别名
 
 
 class AlarmData(BaseModel):
@@ -133,7 +140,6 @@ class AlarmData(BaseModel):
     alarm_time: datetime = Field(..., description="告警时间")
     risk_level: str = Field(default="medium", description="风险等级: high/medium/low")
 
-
 class SummaryRequest(BaseModel):
     """AI总结请求"""
     sessionID: str = Field(..., description="会话ID（设备ID）")
@@ -141,6 +147,6 @@ class SummaryRequest(BaseModel):
 
 class WorkOrderData(BaseModel):
     """工单数据"""
-    ds_id: int = Field(..., description="设备ID（从sessionID转换而来）")
+    ds_id: str = Field(..., description="设备ID（sessionID）")
     work_class: int = Field(..., description="工单分类：1=软件，2=硬件")
     work_notice: str = Field(..., description="工作内容总结")
