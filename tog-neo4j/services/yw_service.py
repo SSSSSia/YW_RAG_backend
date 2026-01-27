@@ -13,6 +13,25 @@ from core.llm_client import llm_client
 from utils.logger import logger, log_step
 
 
+def _build_response_data(sessionID: str, alarm: Optional[str] = None, alarm_time: Optional[datetime] = None) -> dict:
+    """
+    构建统一格式的响应数据
+
+    Args:
+        sessionID: 会话ID（设备资产编号）
+        alarm: 告警信息（可选，无告警时为None）
+        alarm_time: 告警时间（可选，无告警时为None）
+
+    Returns:
+        dict: 包含3个字段的响应数据
+    """
+    return {
+        "equipment_asset": sessionID,
+        "alarm": alarm,  # 无告警时为None（JSON中会变成null）
+        "alarm_time": alarm_time  # 无告警时为None（JSON中会变成null）
+    }
+
+
 class AuditService:
     """AI审计和总结服务"""
 
@@ -360,10 +379,10 @@ class AuditService:
             logger.info(f"[AuditService] [{sessionID}] 告警信息: {result_data.alarm}")
             logger.info("=" * 60)
 
-            return R.error(
+            return R.fail(
                 message="严重告警：操作偏离流程且存在安全风险",
-                code="300001",
-                data=result_data.model_dump()
+                code="30001",
+                data=result_data.to_api_response()
             )
         else:
             # 轻微告警：跳出流程但无显著风险
@@ -375,12 +394,7 @@ class AuditService:
             return R.ok(
                 message="轻微告警：操作偏离标准流程",
                 code="200001",
-                data={
-                    "equipment_asset": sessionID,
-                    "work_content": summary,
-                    "process_name": process_name,
-                    "reason": reason
-                }
+                data=_build_response_data(sessionID)  # 无告警，alarm和alarm_time为None
             )
 
     # ==================== 私有方法：LLM调用 ====================
@@ -799,15 +813,15 @@ class AuditService:
             )
 
             logger.warning(f"[AuditService] [{sessionID}] ⚠️ 标准审计发现风险")
-            return R.error(
+            return R.fail(
                 message="发现安全风险",
-                code="300001",
-                data=result_data.model_dump()
+                code="30001",
+                data=result_data.to_api_response()
             )
         else:
             return R.ok(
                 message="操作正常",
-                data={"equipment_asset": sessionID, "work_content": summary}
+                data=_build_response_data(sessionID)  # 无告警，alarm和alarm_time为None
             )
 
     async def _audit_first_operation(
@@ -846,10 +860,10 @@ class AuditService:
             logger.info(f"[AuditService] [{sessionID}] ⚠️ 首次操作发现风险")
             logger.info("=" * 60)
 
-            return R.error(
+            return R.fail(
                 message=f"已识别流程'{process_name}'，但操作存在风险",
-                code="300001",
-                data=result_data.model_dump()
+                code="30001",
+                data=result_data.to_api_response()
             )
         else:
             logger.info(f"[AuditService] [{sessionID}] ✅ 首次操作正常，流程: {process_name}")
@@ -857,7 +871,7 @@ class AuditService:
 
             return R.ok(
                 message=f"已识别流程: {process_name}",
-                data={"equipment_asset": sessionID, "work_content": summary, "process_name": process_name}
+                data=_build_response_data(sessionID)  # 无告警，alarm和alarm_time为None
             )
 
     async def _audit_operation_in_process(
@@ -891,16 +905,16 @@ class AuditService:
 
             logger.warning(f"[AuditService] [{sessionID}] ⚠️ 操作在流程中但存在风险")
 
-            return R.error(
+            return R.fail(
                 message="操作在流程中，但存在安全风险",
-                code="300001",
-                data=result_data.model_dump()
+                code="30001",
+                data=result_data.to_api_response()
             )
         else:
             logger.info(f"[AuditService] [{sessionID}] ✅ 操作正常，在流程中")
             return R.ok(
                 message="操作正常",
-                data={"equipment_asset": sessionID, "work_content": summary}
+                data=_build_response_data(sessionID)  # 无告警，alarm和alarm_time为None
             )
 
     # ==================== 私有方法：工单生成 ====================
@@ -943,8 +957,7 @@ class AuditService:
             operations_summary.append(
                 f"操作{idx}:\n"
                 f"- 操作描述: {record['operation']}\n"
-                f"- AI总结: {record['summary']}\n"
-                f"- 时间: {record['created_at']}"
+                f"- AI总结: {record['summary']}"
             )
         return "\n\n".join(operations_summary)
 
@@ -1113,17 +1126,86 @@ class AuditService:
             return "\n历史操作：无法获取历史记录"
 
     def _parse_json_response(self, response: str) -> Optional[Dict]:
-        """解析LLM返回的JSON"""
+        """
+        解析LLM返回的JSON
+
+        容错处理：
+        1. 自动移除markdown代码块标记（```json 和 ```）
+        2. 处理前后空白字符
+        3. 智能提取JSON对象（通过定位{和}）
+        """
         try:
             response_text = response.strip()
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
-            return json.loads(response_text)
-        except (json.JSONDecodeError, IndexError) as e:
-            logger.warning(f"[AuditService] JSON解析失败: {e}")
-            return None
+
+            # 方法1: 智能提取 - 直接定位JSON对象的开始和结束
+            # 找到第一个 { 或 [ 的位置
+            json_start = -1
+            for i, char in enumerate(response_text):
+                if char in ['{', '[']:
+                    json_start = i
+                    break
+
+            if json_start == -1:
+                logger.warning(f"[AuditService] 未找到JSON开始标记，原始响应前200字符: {response[:200]}")
+                return None
+
+            # 找到最后一个 } 或 ] 的位置
+            json_end = -1
+            for i in range(len(response_text) - 1, -1, -1):
+                if response_text[i] in ['}', ']']:
+                    json_end = i
+                    break
+
+            if json_end == -1 or json_end <= json_start:
+                logger.warning(f"[AuditService] 未找到JSON结束标记，原始响应前200字符: {response[:200]}")
+                return None
+
+            # 提取JSON内容
+            json_content = response_text[json_start:json_end + 1]
+
+            # 尝试解析
+            result = json.loads(json_content)
+
+            logger.debug(f"[AuditService] JSON解析成功，提取的长度: {len(json_content)}")
+            return result
+
+        except (json.JSONDecodeError, IndexError, ValueError) as e:
+            # 如果智能提取失败，尝试传统方法：移除markdown代码块
+            try:
+                response_text = response.strip()
+
+                # 尝试移除 ```json ... ``` 格式
+                if "```json" in response_text:
+                    parts = response_text.split("```json")
+                    if len(parts) > 1:
+                        response_text = parts[1].split("```")[0].strip()
+                        if response_text:
+                            return json.loads(response_text)
+
+                # 尝试移除 ``` ... ``` 格式
+                if "```" in response_text:
+                    parts = response_text.split("```")
+                    # 取第二个```块（如果有的话）
+                    if len(parts) >= 3:
+                        response_text = parts[1].strip()
+                        if response_text:
+                            return json.loads(response_text)
+                    elif len(parts) == 2:
+                        # 只有两个```，取中间的内容
+                        response_text = parts[1].strip()
+                        # 移除可能的lang标识（第一行）
+                        lines = response_text.split('\n', 1)
+                        if len(lines) > 1:
+                            response_text = lines[1].strip()
+                        if response_text:
+                            return json.loads(response_text)
+
+                logger.warning(f"[AuditService] JSON解析失败: {e}, 原始响应前200字符: {response[:200]}")
+                return None
+
+            except Exception as e2:
+                logger.warning(f"[AuditService] JSON解析失败（所有方法）: {e}, 原始响应前200字符: {response[:200]}")
+                return None
 
     def _format_event_content(self, event_content: str) -> str:
         """格式化事件内容"""

@@ -66,6 +66,23 @@ class OperationRecordDB:
             logger.error(f"数据库初始化验证失败: {e}")
             raise
 
+    def _check_column_exists(self, table_name: str, column_name: str) -> bool:
+        """检查表中是否存在某个字段"""
+        self._ensure_connection()
+        try:
+            with self.connection.cursor() as cursor:
+                sql = """
+                    SELECT COUNT(*) as count
+                    FROM information_schema.columns
+                    WHERE table_schema = %s AND table_name = %s AND column_name = %s
+                """
+                cursor.execute(sql, (settings.mysql_database, table_name, column_name))
+                result = cursor.fetchone()
+                return result and result['count'] > 0
+        except Exception as e:
+            logger.warning(f"检查字段存在性失败: {e}")
+            return False
+
     def save_record(self, session_id: str, operation: str, image_path: str, summary: str = None) -> int:
         """
         保存操作记录
@@ -82,11 +99,25 @@ class OperationRecordDB:
         self._ensure_connection()
         try:
             with self.connection.cursor() as cursor:
-                sql = """
-                    INSERT INTO operation_records (session_id, operation, image_path, summary)
-                    VALUES (%s, %s, %s, %s)
-                """
-                cursor.execute(sql, (session_id, operation, image_path, summary))
+                # 检查 summary 字段是否存在
+                has_summary = self._check_column_exists('operation_records', 'summary')
+
+                if has_summary:
+                    sql = """
+                        INSERT INTO operation_records (session_id, operation, image_path, summary)
+                        VALUES (%s, %s, %s, %s)
+                    """
+                    cursor.execute(sql, (session_id, operation, image_path, summary))
+                else:
+                    # 如果 summary 字段不存在，则不保存该字段
+                    sql = """
+                        INSERT INTO operation_records (session_id, operation, image_path)
+                        VALUES (%s, %s, %s)
+                    """
+                    cursor.execute(sql, (session_id, operation, image_path))
+                    if summary:
+                        logger.warning(f"summary字段不存在，操作总结未保存到数据库: session_id={session_id}")
+
                 self.connection.commit()
                 record_id = cursor.lastrowid
                 logger.info(f"操作记录保存成功: session_id={session_id}, record_id={record_id}")
@@ -109,27 +140,49 @@ class OperationRecordDB:
         self._ensure_connection()
         try:
             with self.connection.cursor() as cursor:
-                sql = """
-                    SELECT id, session_id, operation, image_path, summary, created_at
-                    FROM operation_records
-                    WHERE session_id = %s
-                    ORDER BY created_at ASC
-                """
+                # 检查 summary 字段是否存在
+                has_summary = self._check_column_exists('operation_records', 'summary')
+
+                if has_summary:
+                    sql = """
+                        SELECT id, session_id, operation, image_path, summary, create_time
+                        FROM operation_records
+                        WHERE session_id = %s
+                        ORDER BY create_time ASC
+                    """
+                else:
+                    # 如果 summary 字段不存在，则不查询该字段
+                    sql = """
+                        SELECT id, session_id, operation, image_path, create_time
+                        FROM operation_records
+                        WHERE session_id = %s
+                        ORDER BY create_time ASC
+                    """
+
                 cursor.execute(sql, (session_id,))
                 results = cursor.fetchall()
 
                 records = []
                 for row in results:
-                    records.append({
+                    record = {
                         "id": row["id"],
                         "session_id": row["session_id"],
                         "operation": row["operation"],
-                        "image_path": row["image_path"],
-                        "summary": row["summary"],
-                        "created_at": row["created_at"].isoformat() if row["created_at"] else None
-                    })
+                        "image_path": row["image_path"]
+                    }
+                    # 只有当字段存在时才添加 summary
+                    if has_summary:
+                        record["summary"] = row.get("summary", "")
+                    else:
+                        record["summary"] = ""
 
-                logger.info(f"获取会话记录: session_id={session_id}, count={len(records)}")
+                    records.append(record)
+
+                if not has_summary:
+                    logger.info(f"获取会话记录: session_id={session_id}, count={len(records)} (summary字段不存在)")
+                else:
+                    logger.info(f"获取会话记录: session_id={session_id}, count={len(records)}")
+
                 return records
         except Exception as e:
             logger.error(f"获取会话记录失败: {e}")

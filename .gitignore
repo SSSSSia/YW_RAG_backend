@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 *.pyo
 __pycache__/
+*.jpg
+*.md
+*.sql
+*.xml

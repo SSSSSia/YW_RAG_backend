@@ -44,11 +44,16 @@ class R(BaseModel):
         return R(code=code, message=message, data=data)
 
     @staticmethod
-    def error(message: str, error_detail: str = None, code: str = None) -> "R":
+    def error(message: str, error_detail: str = None, code: str = None, data: Any = None) -> "R":
         if code is None:
             code = ResponseCode.ERROR.value
-        data = {"error_detail": error_detail} if error_detail else None
-        return R(code=code, message=message, data=data)
+        if data is not None:
+            # 如果提供了data参数，直接使用
+            return R(code=code, message=message, data=data)
+        else:
+            # 否则使用旧的逻辑（包含error_detail）
+            final_data = {"error_detail": error_detail} if error_detail else None
+            return R(code=code, message=message, data=final_data)
 
     @staticmethod
     def not_found(message: str = "资源不存在", data: Any = None) -> "R":
@@ -140,12 +145,20 @@ class AuditOpt(BaseModel):
 
 
 class AlarmData(BaseModel):
-    """告警信息数据"""
+    """告警信息数据（内部使用，包含完整字段）"""
     equipment_asset: str = Field(..., description="设备编号（会话ID）")
     alarm: str = Field(..., description="告警信息")
     work_content: str = Field(..., description="本次工作内容")
     alarm_time: datetime = Field(..., description="告警时间")
     risk_level: str = Field(default="medium", description="风险等级: high/medium/low/none")
+
+    def to_api_response(self) -> dict:
+        """转换为API响应格式（只包含Java后端需要的3个字段）"""
+        return {
+            "equipment_asset": self.equipment_asset,
+            "alarm": self.alarm,
+            "alarm_time": self.alarm_time
+        }
 
 
 class SummaryRequest(BaseModel):

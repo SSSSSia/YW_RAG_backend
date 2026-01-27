@@ -14,6 +14,124 @@ from typing import Optional
 router = APIRouter(prefix="/yw", tags=["运维AI审计和总结"])
 
 
+def _parse_json_from_response(response: str) -> Optional[dict]:
+    """
+    从LLM响应中智能提取JSON对象
+
+    容错处理：
+    1. 自动移除markdown代码块标记（```json 和 ```）
+    2. 处理前后空白字符
+    3. 智能提取JSON对象（通过定位{和}）
+
+    Args:
+        response: LLM返回的原始响应
+
+    Returns:
+        解析后的JSON字典，失败返回None
+    """
+    try:
+        if not response:
+            return None
+
+        response_text = response.strip()
+
+        # 方法1: 智能提取 - 直接定位JSON对象的开始和结束
+        # 找到第一个 { 或 [ 的位置
+        json_start = -1
+        for i, char in enumerate(response_text):
+            if char in ['{', '[']:
+                json_start = i
+                break
+
+        if json_start == -1:
+            logger.warning(f"未找到JSON开始标记，原始响应前200字符: {response[:200]}")
+            # 尝试传统方法：移除markdown代码块
+            return _parse_json_traditional(response_text)
+
+        # 找到最后一个 } 或 ] 的位置
+        json_end = -1
+        for i in range(len(response_text) - 1, -1, -1):
+            if response_text[i] in ['}', ']']:
+                json_end = i
+                break
+
+        if json_end == -1 or json_end <= json_start:
+            logger.warning(f"未找到JSON结束标记，原始响应前200字符: {response[:200]}")
+            # 尝试传统方法：移除markdown代码块
+            return _parse_json_traditional(response_text)
+
+        # 提取JSON内容
+        json_content = response_text[json_start:json_end + 1]
+
+        # 尝试解析
+        result = json.loads(json_content)
+
+        logger.debug(f"JSON解析成功，提取的长度: {len(json_content)}")
+        return result
+
+    except (json.JSONDecodeError, ValueError, IndexError) as e:
+        # 如果智能提取失败，尝试传统方法
+        logger.debug(f"智能JSON提取失败，尝试传统方法: {e}")
+        return _parse_json_traditional(response_text)
+
+
+def _parse_json_traditional(response_text: str) -> Optional[dict]:
+    """
+    传统方法：移除markdown代码块后解析JSON
+
+    Args:
+        response_text: 已经strip过的响应文本
+
+    Returns:
+        解析后的JSON字典，失败返回None
+    """
+    try:
+        # 尝试移除 ```json ... ``` 格式
+        if "```json" in response_text:
+            parts = response_text.split("```json")
+            if len(parts) > 1:
+                json_text = parts[1].split("```")[0].strip()
+                if json_text:
+                    result = json.loads(json_text)
+                    logger.debug("使用```json标记解析成功")
+                    return result
+
+        # 尝试移除 ``` ... ``` 格式
+        if "```" in response_text:
+            parts = response_text.split("```")
+            # 取第二个```块（如果有的话）
+            if len(parts) >= 3:
+                json_text = parts[1].strip()
+                if json_text:
+                    result = json.loads(json_text)
+                    logger.debug("使用```标记解析成功")
+                    return result
+            elif len(parts) == 2:
+                # 只有两个```，取中间的内容
+                json_text = parts[1].strip()
+                # 移除可能的lang标识（第一行）
+                lines = json_text.split('\n', 1)
+                if len(lines) > 1:
+                    json_text = lines[1].strip()
+                if json_text:
+                    result = json.loads(json_text)
+                    logger.debug("使用单个```标记解析成功")
+                    return result
+
+        # 最后尝试：直接解析整个响应
+        if response_text:
+            result = json.loads(response_text)
+            logger.debug("直接解析成功")
+            return result
+
+        logger.warning(f"传统JSON解析也失败，响应前200字符: {response_text[:200]}")
+        return None
+
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.warning(f"传统JSON解析失败: {e}, 响应前200字符: {response_text[:200]}")
+        return None
+
+
 @router.post("/check", response_model=R)
 async def ai_check(
     pic: UploadFile = File(..., description="图片文件"),
@@ -61,7 +179,7 @@ async def ai_check(
 
     except Exception as e:
         logger.error(f"[YWRoutes] AI审计处理失败: {e}", exc_info=True)
-        return R.error(message="审计处理失败", data=str(e), code="500")
+        return R.error(message="审计处理失败", error_detail=str(e), code="500")
 
 
 @router.post("/summary", response_model=R)
@@ -99,7 +217,6 @@ async def ai_summary(request: SummaryRequest):
                 f"操作{idx}:\n"
                 f"- 操作描述: {record['operation']}\n"
                 f"- 总结: {record['summary']}\n"
-                f"- 时间: {record['created_at']}"
             )
 
         operations_text = "\n\n".join(operations_summary)
@@ -203,7 +320,46 @@ async def ai_summary(request: SummaryRequest):
         logger.info(f"[{request.sessionID}] 成功加载 {len(selected_images)} 张图片")
 
         # 构建AI总结的提示词
-        system_prompt = """你是一个专业的运维工单生成AI助手。你的任务是根据运维操作记录（包括图片和文字描述）生成详细的工单信息。
+        system_prompt = """你是一个专业的运维工单生成AI助手。你的任务是根据运维操作记录（包括图片和文字描述）生成详细的工单信息。不用说明对应了哪张截图，只输出自然语言描述就行。
+
+【已知正常操作流程参考】
+以下操作是正常的预设流程，在总结时应识别为正常操作：
+
+1. 系统重装流程（17步正常操作）：
+   1) 点击 "Test this media & install Kylin linux Advanced Server V11"
+   2) 按Enter键
+   3) 点击"中文-简体中文"
+   4) 点击"继续"
+   5) 点击"安装目的地（D）"
+   6) 点击"完成（D）"
+   7) 点击"Root账户"
+   8) 输入Root密码
+   9) 点击"确认(C)"的输入框
+   10) 再次输入Root密码
+   11) 点击左上角完成
+   12) 点击"开始安装"
+   13) 点击"Kylin Linux Advanced Server（6.6.0-32.7.ky11.x86_64) V11（Swan25）"
+   14) 点击"许可信息（L）"
+   15) 点击"我同意许可协议（A）"
+   16) 点击"完成（D）"
+   17) 点击"结束配置（F）"
+
+2. 密码重置流程（8步正常操作）：
+   1) 点击"Kylin Linux Advanced Server（6.6.0-32.7.ky11.x86_64) V11（Swan25）"
+   2) 按Enter键
+   3) 输入"passwd"命令
+   4) 输入密码
+   5) 按Enter键
+   6) 再次输入密码
+   7) 按Enter键
+   8) 输入"/usr/sbin/reboot -f"强制重启生效
+
+【总结要点 - 重要】
+在生成工作内容总结时，必须：
+1. 识别操作是否属于上述正常流程
+2. 如果操作明显偏离正常流程或涉及安全风险（如访问敏感路径、修改配置等），必须在总结中明确指出这些异常操作
+3. 区分正常流程操作和违规操作，违规操作应单独说明
+4. 不要将违规操作混入正常流程描述中
 
 工单分类说明（work_class）：
 - 1: 软件（涉及软件安装、配置、调试、升级等）
@@ -214,6 +370,7 @@ async def ai_summary(request: SummaryRequest):
 - 如果提供了截图，请结合截图内容进行分析
 - 包含具体的设备、软件、配置信息
 - 说明操作目的和结果
+- 区分正常操作和异常操作
 - 字数要求：至少150字，确保信息完整
 
 响应格式要求（必须是JSON格式）：
@@ -299,14 +456,15 @@ async def ai_summary(request: SummaryRequest):
 
         # 解析LLM响应
         try:
-            # 尝试提取JSON内容
-            response_text = llm_response.strip()
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
+            # 尝试提取JSON内容（使用智能提取逻辑）
+            # logger.info(f"[{request.sessionID}]  LLM响应：{llm_response}")
 
-            result = json.loads(response_text)
+            # 使用智能JSON提取方法
+            result = _parse_json_from_response(llm_response)
+
+            if not result:
+                logger.warning(f"[{request.sessionID}] ⚠️ JSON提取失败")
+                raise json.JSONDecodeError("JSON提取失败", "", 0)
 
             # ds_id直接从sessionID转换（提取数字部分）
             numbers = re.findall(r'\d+', request.sessionID)
@@ -336,6 +494,7 @@ async def ai_summary(request: SummaryRequest):
         logger.info(f"[{request.sessionID}] ✅ AI总结完成")
         logger.info(f"[{request.sessionID}] 工单信息: ds_id={work_order.ds_id}, work_class={work_order.work_class}（{'软件' if work_order.work_class == 1 else '硬件'}）")
         logger.info(f"[{request.sessionID}] 工作内容长度: {len(work_order.work_notice)}字")
+        logger.info(f"[{request.sessionID}] 工作内容: {work_order.work_notice}")
         logger.info("=" * 60)
 
         return R.ok(
@@ -346,4 +505,4 @@ async def ai_summary(request: SummaryRequest):
     except Exception as e:
         logger.error(f"[{request.sessionID}] ❌ AI总结处理失败: {e}", exc_info=True)
         logger.info("=" * 60)
-        return R.error(message="总结处理失败", data=str(e), code="500")
+        return R.error(message="总结处理失败", error_detail=str(e), code="500")

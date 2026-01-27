@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     siliconflow_timeout: int = 120
     siliconflow_max_retries: int = 3
 
+    # 智谱清言API配置
+    zhipu_api_url: str = "https://open.bigmodel.cn/api/paas/v4/"
+    zhipu_api_key: str = ""
+    zhipu_vision_model: str = "glm-4v-flash"
+    zhipu_timeout: int = 120
+    zhipu_max_retries: int = 3
+
     # GraphRAG配置
     graphrag_root: str = "../graphrag"
     base_settings_path: str = "../graphrag/settings.yaml"

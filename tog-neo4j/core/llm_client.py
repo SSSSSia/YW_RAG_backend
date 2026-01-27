@@ -296,6 +296,146 @@ class LLMClient:
                 return self.chat_with_vision(prompt, images_base64[0], temperature, max_tokens, api_key, model, system_prompt)
             return ""
 
+    # ==================== 智谱清言API方法 ====================
+
+    def chat_with_zhipu_vision(self, prompt: str, image_base64: str, temperature: float = 0.3,
+                               max_tokens: int = 2000, api_key: str = None, model: str = None,
+                               system_prompt: str = None) -> str:
+        """
+        使用智谱清言视觉模型分析图片并回答问题
+
+        Args:
+            prompt: 用户提示词
+            image_base64: 图片的base64编码（带data URL前缀）
+            temperature: 温度参数
+            max_tokens: 最大token数
+            api_key: API密钥
+            model: 模型名称（默认使用 glm-4v-flash）
+            system_prompt: 系统提示词
+
+        Returns:
+            模型响应文本
+        """
+        try:
+            # 使用传入的参数或配置中的默认值
+            zp_api_key = api_key or settings.zhipu_api_key
+            # 默认使用智谱清言视觉模型
+            zp_model = model or settings.zhipu_vision_model
+
+            # 默认系统提示词
+            default_system_prompt = "你是一个专业的视觉分析助手，能够理解图片内容并根据图片回答问题。"
+
+            if not zp_api_key:
+                logger.error("智谱清言API密钥未设置")
+                return ""
+
+            # 构建多模态消息内容
+            message_content = [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": image_base64}}
+            ]
+
+            # 创建智谱清言客户端（使用OpenAI兼容接口）
+            zp_client = ChatOpenAI(
+                model=zp_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                openai_api_key=zp_api_key,
+                openai_api_base=settings.zhipu_api_url,
+                timeout=settings.zhipu_timeout,
+                max_retries=settings.zhipu_max_retries
+            )
+
+            # 构建消息列表
+            messages = []
+            if system_prompt:
+                messages.append(SystemMessage(content=system_prompt))
+            else:
+                messages.append(SystemMessage(content=default_system_prompt))
+            messages.append(HumanMessage(content=message_content))
+
+            response = zp_client.invoke(messages)
+            return response.content.strip()
+        except Exception as e:
+            logger.error(f"智谱清言视觉模型调用失败: {e}")
+            return ""
+
+    def chat_with_zhipu_multiple_visions(self, prompt: str, images_base64: list, temperature: float = 0.3,
+                                         max_tokens: int = 2000, api_key: str = None, model: str = None,
+                                         system_prompt: str = None) -> str:
+        """
+        使用智谱清言视觉模型分析多张图片并回答问题
+
+        Args:
+            prompt: 用户提示词
+            images_base64: 图片的base64编码列表（每个元素带data URL前缀）
+            temperature: 温度参数
+            max_tokens: 最大token数
+            api_key: API密钥
+            model: 模型名称（默认使用 glm-4v-flash）
+            system_prompt: 系统提示词
+
+        Returns:
+            模型响应文本
+        """
+        try:
+            # 使用传入的参数或配置中的默认值
+            zp_api_key = api_key or settings.zhipu_api_key
+            # 默认使用智谱清言视觉模型
+            zp_model = model or settings.zhipu_vision_model
+
+            # 默认系统提示词
+            default_system_prompt = "你是一个专业的视觉分析助手，能够理解多张图片的内容并根据图片回答问题。"
+
+            if not zp_api_key:
+                logger.error("智谱清言API密钥未设置")
+                return ""
+
+            if not images_base64:
+                logger.warning("未提供图片")
+                return ""
+
+            # 构建多模态消息内容（支持多张图片）
+            message_content = [
+                {"type": "text", "text": prompt}
+            ]
+
+            # 添加所有图片
+            for img_base64 in images_base64:
+                message_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": img_base64}
+                })
+
+            # 创建智谱清言客户端
+            zp_client = ChatOpenAI(
+                model=zp_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                openai_api_key=zp_api_key,
+                openai_api_base=settings.zhipu_api_url,
+                timeout=settings.zhipu_timeout,
+                max_retries=settings.zhipu_max_retries
+            )
+
+            # 构建消息列表
+            messages = []
+            if system_prompt:
+                messages.append(SystemMessage(content=system_prompt))
+            else:
+                messages.append(SystemMessage(content=default_system_prompt))
+            messages.append(HumanMessage(content=message_content))
+
+            response = zp_client.invoke(messages)
+            return response.content.strip()
+        except Exception as e:
+            logger.error(f"智谱清言多图视觉模型调用失败: {e}")
+            # 降级：尝试只使用第一张图片
+            if images_base64:
+                logger.info("降级为单图模式")
+                return self.chat_with_vision(prompt, images_base64[0], temperature, max_tokens, api_key, model, system_prompt)
+            return ""
+
 
 # 全局LLM客户端实例
 llm_client = LLMClient()
