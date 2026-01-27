@@ -1,16 +1,15 @@
 """
 AI审计和AI总结接口 - 修改版
 """
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
-from models.schemas import R, SummaryRequest, AlarmData, WorkOrderData
-from core.mysql_db import get_operation_db
-from services.session_storage_service import get_session_storage_service
-from core.llm_client import llm_client
-from utils.logger import logger, log_step
-from datetime import datetime
-from typing import Optional
 import json
 import re
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from models.schemas import R, SummaryRequest, AlarmData, WorkOrderData
+from services import get_audit_service, get_session_storage_service
+from core import llm_client
+from core.mysql_db import get_operation_db
+from utils.logger import logger, log_step
+from typing import Optional
 
 router = APIRouter(prefix="/yw", tags=["运维AI审计和总结"])
 
@@ -19,183 +18,49 @@ router = APIRouter(prefix="/yw", tags=["运维AI审计和总结"])
 async def ai_check(
     pic: UploadFile = File(..., description="图片文件"),
     sessionID: str = Form(..., description="会话ID（设备ID）"),
-    operation: str = Form(..., description="图片对应的操作")
+    operation: str = Form(..., description="图片对应的操作（JSON字符串）"),
+    process_name: Optional[str] = Form(None, description="预设流程名称（可选）")
 ):
     """
-    AI审计接口 - 根据图片和操作判断是否存在危险并生成告警信息
+    AI审计接口 - 基于操作流程的智能审计（无数据库版本）
 
     请求参数（multipart/form-data）：
     - sessionID: 会话ID（设备ID）
     - pic: 图片文件（YYYYMMDDHHmmss命名）
-    - operation: 图片对应的操作描述
+    - operation: 图片对应的操作描述（JSON字符串，AuditOpt对象）
+    - process_name: 预设流程名称（可选，用于演示/测试）
 
     返回：
-    - 如果无告警：code="200", message="操作正常", data包含设备编号和工作内容
-    - 如果有告警：code="500", message="发现安全风险", data包含告警信息
-      - equipment_asset: 设备编号（即sessionID）
-      - alarm: 告警信息（由LLM判断危险性生成）
-      - alarm_time: 告警时间
-      - work_content: 工作内容摘要
+    - code="200": 操作正常（在流程内且无风险）
+    - code="200001": 轻微告警（跳出流程但无风险）
+    - code="300001": 严重告警（跳出流程且有风险）
+
+    说明：
+    - 如果提供 process_name，将使用该流程进行检查
+    - 如果不提供 process_name，则只进行标准风险审计（不使用流程）
+    - 此版本不使用MySQL数据库，只使用Neo4j（可选）和LLM进行审计
     """
     try:
-        logger.info("=" * 60)
-        logger.info(f"[{sessionID}] 🔍 收到AI审计请求")
-        logger.info(f"[{sessionID}] 操作: {operation}")
-        logger.info(f"[{sessionID}] 图片文件: {pic.filename}")
+        logger.info(f"[YWRoutes] 收到AI审计请求，sessionID: {sessionID}, 图片: {pic.filename}")
 
         # 读取图片数据
         image_data = await pic.read()
 
-        # 保存图片到会话目录
-        log_step(1, 4, "保存图片", sessionID)
-        filename = pic.filename or f"{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg"
-        image_path = get_session_storage_service().save_image(sessionID, filename, image_data)
-
-        # 读取图片并转换为base64
-        log_step(2, 4, "读取图片并准备LLM分析", sessionID)
-        image_base64 = get_session_storage_service().get_image_base64(image_path)
-        if not image_base64:
-            logger.error(f"[{sessionID}] ❌ 图片读取失败")
-            return R.error(message="图片读取失败", code="500")
-
-        # 构建AI审计的提示词 - 结构化输出
-        system_prompt = """你是一个专业的运维安全审计AI助手。你的任务是判断运维操作是否存在安全风险。
-
-【判断标准】
-**高危操作（has_risk=true, risk_level="high"）**：
-- 删除关键数据、格式化磁盘、停止核心服务
-- 修改生产环境核心配置（防火墙、数据库、网络、系统配置）
-- 执行未知来源的脚本或命令
-- 危险命令：rm -rf /、dd、shutdown、format等
-- 未在权限范围内的敏感操作
-
-**中危操作（has_risk=true, risk_level="medium"）**：
-- 修改非关键配置
-- 重启非核心服务
-- 可能影响性能的操作
-- 操作不规范但未造成明显风险
-
-**低危操作（has_risk=true, risk_level="low"）**：
-- 轻微操作不规范
-- 潜在风险很小
-
-**安全操作（has_risk=false, risk_level="none"）**：
-- 查询类操作（ls、cat、grep、select等）
-- 常规维护操作
-- 正常的配置查看 
-
-【输出要求】
-必须严格返回JSON格式（不要使用markdown代码块）：
-{
-  "has_risk": true或false,
-  "risk_level": "high/medium/low/none",
-  "alarm_message": "具体告警内容（仅has_risk为true时填写，20-100字）"
-}
-
-注意：
-- has_risk为false时，risk_level必须为"none"，alarm_message留空或填"无风险"
-- has_risk为true时，必须明确说明具体风险点"""
-
-        user_prompt = f"""请审计以下运维操作：
-
-操作描述：{operation}
-
-请结合截图内容判断风险等级，并严格按JSON格式返回结果。"""
-
-        # 调用视觉LLM进行安全审计
-        log_step(3, 4, "调用视觉LLM进行安全审计", sessionID)
-        alarm_message = llm_client.chat_with_vision(
-            prompt=user_prompt,
-            image_base64=image_base64,
-            temperature=0.1,
-            max_tokens=500,
-            system_prompt=system_prompt
-        )
-
-        if not alarm_message:
-            logger.warning(f"[{sessionID}] ⚠️ LLM调用失败")
-            return R.error(message="AI分析失败", code="500")
-
-        # 解析LLM返回的JSON结果
-        log_step(4, 6, "解析AI审计结果", sessionID)
-        try:
-            # 清理可能的markdown代码块标记
-            response_text = alarm_message.strip()
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
-
-            audit_result = json.loads(response_text)
-            has_risk = audit_result.get("has_risk", False)
-            risk_level = audit_result.get("risk_level", "none")
-            alarm_content = audit_result.get("alarm_message", "")
-
-            logger.info(f"[{sessionID}] 📊 AI审计结果: has_risk={has_risk}, risk_level={risk_level}")
-        except (json.JSONDecodeError, Exception) as e:
-            logger.warning(f"[{sessionID}] ⚠️ JSON解析失败: {e}, 原始响应: {alarm_message}")
-            # 解析失败时，保守策略：如果有明显的问题关键词则告警
-            error_keywords = ["删除", "格式化", "shutdown", "rm -rf", "drop", "truncate"]
-            has_risk = any(keyword in alarm_message.lower() for keyword in error_keywords)
-            risk_level = "medium" if has_risk else "none"
-            alarm_content = alarm_message if has_risk else ""
-
-        # 生成操作的简要总结（用于保存到数据库，供后续summary使用）
-        log_step(5, 6, "生成操作总结", sessionID)
-        summary_prompt = f"请用一句话（30字内）概括这个操作：{operation}"
-        summary = llm_client.chat_with_vision(
-            prompt=summary_prompt,
-            image_base64=image_base64,
-            temperature=0.1,
-            max_tokens=200,
-            system_prompt="你是一个运维操作记录助手，请简洁概括操作内容。"
-        ) or operation
-
-        # 保存到MySQL数据库
-        log_step(6, 6, "保存操作记录到MySQL数据库", sessionID)
-        get_operation_db().save_record(
-            session_id=sessionID,
+        # 调用 AuditService 处理
+        # 注意：如果不提供 process_name，则只进行标准风险审计（不使用流程）
+        result = await get_audit_service().ai_check(
+            pic_filename=pic.filename,
+            image_data=image_data,
+            sessionID=sessionID,
             operation=operation,
-            image_path=image_path,
-            summary=summary
+            process_name=process_name
         )
 
-        # 根据审计结果返回响应
-        if has_risk and risk_level != "none":
-            # 有告警：返回code=300001
-            alarm_time = datetime.now()
-            result_data = AlarmData(
-                equipment_asset=sessionID,
-                alarm=alarm_content or "检测到安全风险",
-                alarm_time=alarm_time,
-                work_content=summary,
-                risk_level=risk_level
-            )
-
-            logger.info(f"[{sessionID}] ⚠️ 发现安全风险 [{risk_level.upper()}]")
-            logger.info(f"[{sessionID}] 告警信息: {alarm_content}")
-            logger.info(f"[{sessionID}] 工作内容: {summary}")
-            logger.info("=" * 60)
-
-            return R.error(
-                message="发现安全风险",
-                code="300001",
-                data=result_data.model_dump()
-            )
-        else:
-            # 无告警：返回code=200
-            logger.info(f"[{sessionID}] ✅ 操作正常，无安全风险")
-            logger.info(f"[{sessionID}] 工作内容: {summary}")
-            logger.info("=" * 60)
-
-            return R.ok(
-                message="操作正常",
-                data={"equipment_asset": sessionID, "work_content": summary}
-            )
+        logger.info(f"[YWRoutes] AI审计完成，sessionID: {sessionID}")
+        return result
 
     except Exception as e:
-        logger.error(f"[{sessionID}] ❌ AI审计处理失败: {e}", exc_info=True)
-        logger.info("=" * 60)
+        logger.error(f"[YWRoutes] AI审计处理失败: {e}", exc_info=True)
         return R.error(message="审计处理失败", data=str(e), code="500")
 
 
@@ -226,22 +91,8 @@ async def ai_summary(request: SummaryRequest):
 
         logger.info(f"[{request.sessionID}] 找到 {len(records)} 条操作记录")
 
-        # 读取所有图片并转换为base64（用于传给大模型）
-        log_step(2, 4, "读取操作记录图片", request.sessionID)
-        image_data_list = []
-        for record in records:
-            image_path = record.get('image_path')
-            if image_path:
-                image_base64 = get_session_storage_service().get_image_base64(image_path)
-                if image_base64:
-                    image_data_list.append({
-                        'operation': record['operation'],
-                        'summary': record['summary'],
-                        'image': image_base64,
-                        'time': record['created_at']
-                    })
-
-        # 构建操作摘要文本
+        # 构建操作摘要文本（第一轮：不加载图片）
+        log_step(2, 5, "构建操作摘要", request.sessionID)
         operations_summary = []
         for idx, record in enumerate(records, 1):
             operations_summary.append(
@@ -253,7 +104,105 @@ async def ai_summary(request: SummaryRequest):
 
         operations_text = "\n\n".join(operations_summary)
 
-        # 构建AI总结的提示词 - 强调工作内容要详细
+        # ========== 第一轮：让LLM判断需要查看哪些关键操作的图片 ==========
+        log_step(3, 5, "LLM智能选择需要查看的图片", request.sessionID)
+
+        # 检查是否有图片可用
+        has_images = any(record.get('image_path') for record in records)
+
+        selected_image_indices = []
+
+        if has_images:
+            # 第一轮：只传文字，让LLM选择需要查看图片的操作序号
+            selection_prompt = f"""请分析以下运维操作记录，判断需要查看哪些操作的截图才能准确生成工单。
+
+会话ID（设备ID）: {request.sessionID}
+共有 {len(records)} 条操作记录。
+
+操作记录详情：
+{operations_text}
+
+**选择规则（最多选择5个操作）：**
+1. 优先选择关键操作（如配置修改、软件安装、重要决策点）
+2. 选择代表性操作（如开始、结束、重要转折点）
+3. 选择复杂操作（文字描述不够清晰的操作）
+4. 避免选择重复性操作
+
+**输出格式（必须是JSON，不要使用markdown代码块）：**
+{{
+    "selected_operations": [1, 3, 5],  // 需要查看图片的操作序号列表（1-{len(records)}）
+    "reason": "选择理由（30-50字）"
+}}
+
+注意：
+- selected_operations是一个数字数组，表示操作序号
+- 最多选择5个操作
+- 如果操作记录简单明确，可以选择空数组[]"""
+
+            try:
+                selection_response = llm_client.chat_with_siliconflow(
+                    prompt=selection_prompt,
+                    temperature=0.1,
+                    max_tokens=300,
+                    system_prompt="你是一个智能图片选择助手，根据操作文字描述判断需要查看哪些操作的截图。"
+                )
+
+                if selection_response:
+                    # 解析选择结果
+                    selection_text = selection_response.strip()
+                    if "```json" in selection_text:
+                        selection_text = selection_text.split("```json")[1].split("```")[0].strip()
+                    elif "```" in selection_text:
+                        selection_text = selection_text.split("```")[1].split("```")[0].strip()
+
+                    selection_result = json.loads(selection_text)
+                    selected_image_indices = selection_result.get("selected_operations", [])
+                    reason = selection_result.get("reason", "")
+
+                    # 限制最多5张图片
+                    selected_image_indices = selected_image_indices[:5]
+
+                    logger.info(f"[{request.sessionID}] LLM选择了 {len(selected_image_indices)} 张图片: {selected_image_indices}")
+                    logger.info(f"[{request.sessionID}] 选择理由: {reason}")
+                else:
+                    logger.warning(f"[{request.sessionID}] 图片选择LLM调用失败，使用默认策略")
+                    # 默认策略：选择第一张、最后一张和中间一张
+                    selected_image_indices = [1]
+                    if len(records) > 2:
+                        selected_image_indices.append(len(records))
+                        selected_image_indices.append(len(records) // 2 + 1)
+
+            except Exception as e:
+                logger.warning(f"[{request.sessionID}] 图片选择失败: {e}，使用默认策略")
+                # 默认策略
+                selected_image_indices = [1]
+                if len(records) > 2:
+                    selected_image_indices.append(len(records))
+
+        # ========== 第二轮：根据选择加载对应的图片 ==========
+        log_step(4, 5, "加载选中的图片", request.sessionID)
+
+        # 根据选择的操作序号加载图片
+        selected_images = []
+        for idx in selected_image_indices:
+            # 转换为0-based索引
+            record_idx = idx - 1
+            if 0 <= record_idx < len(records):
+                record = records[record_idx]
+                image_path = record.get('image_path')
+                if image_path:
+                    image_base64 = get_session_storage_service().get_image_base64(image_path)
+                    if image_base64:
+                        selected_images.append({
+                            'index': idx,
+                            'operation': record['operation'],
+                            'summary': record['summary'],
+                            'image': image_base64
+                        })
+
+        logger.info(f"[{request.sessionID}] 成功加载 {len(selected_images)} 张图片")
+
+        # 构建AI总结的提示词
         system_prompt = """你是一个专业的运维工单生成AI助手。你的任务是根据运维操作记录（包括图片和文字描述）生成详细的工单信息。
 
 工单分类说明（work_class）：
@@ -262,6 +211,7 @@ async def ai_summary(request: SummaryRequest):
 
 **工作内容（work_notice）要求：**
 - 必须详细描述所有操作步骤
+- 如果提供了截图，请结合截图内容进行分析
 - 包含具体的设备、软件、配置信息
 - 说明操作目的和结果
 - 字数要求：至少150字，确保信息完整
@@ -280,9 +230,22 @@ async def ai_summary(request: SummaryRequest):
 共有 {len(records)} 条操作记录。
 
 操作记录详情：
-{operations_text}
+{operations_text}"""
 
-注意：除了上述文字信息，我还会提供相关的操作截图图片。
+        # 如果有选中的图片，添加图片信息说明
+        if selected_images:
+            image_info = "\n".join([
+                f"- 操作{img['index']}: {img['summary']}"
+                for img in selected_images
+            ])
+            user_prompt += f"""
+
+已为您提供了以下操作的截图：
+{image_info}
+
+请结合这些截图进行分析，重点关注截图中的关键信息和操作细节。"""
+
+        user_prompt += """
 
 请综合分析：
 1. 判断主要是软件操作还是硬件操作
@@ -294,20 +257,35 @@ async def ai_summary(request: SummaryRequest):
 
 请按照要求的JSON格式返回结果。注意：ds_id将由系统从sessionID中提取。"""
 
-        # 调用LLM进行总结（支持多图片）
-        log_step(3, 4, "调用LLM生成详细工单信息", request.sessionID)
+        # ========== 第三轮：调用LLM生成最终工单 ==========
+        log_step(5, 5, "调用LLM生成详细工单信息", request.sessionID)
 
-        # 如果有图片，使用视觉模型；否则使用文本模型
-        if image_data_list:
-            # 使用第一张图片作为代表（或者可以修改为支持多图）
-            llm_response = llm_client.chat_with_vision(
-                prompt=user_prompt,
-                image_base64=image_data_list[0]['image'],
-                temperature=0.3,
-                max_tokens=2000,  # 增加token数以支持详细描述
-                system_prompt=system_prompt
-            )
+        # 如果有选中的图片，使用视觉模型；否则使用文本模型
+        if selected_images:
+            if len(selected_images) == 1:
+                # 单张图片
+                logger.info(f"[{request.sessionID}] 使用视觉模型（1张图片）")
+                llm_response = llm_client.chat_with_vision(
+                    prompt=user_prompt,
+                    image_base64=selected_images[0]['image'],
+                    temperature=0.3,
+                    max_tokens=2000,
+                    system_prompt=system_prompt
+                )
+            else:
+                # 多张图片 - 使用新的多图方法
+                logger.info(f"[{request.sessionID}] 使用多图视觉模型（{len(selected_images)}张图片）")
+                images_base64 = [img['image'] for img in selected_images]
+                llm_response = llm_client.chat_with_multiple_visions(
+                    prompt=user_prompt,
+                    images_base64=images_base64,
+                    temperature=0.3,
+                    max_tokens=2000,
+                    system_prompt=system_prompt
+                )
         else:
+            # 没有图片，使用文本模型
+            logger.info(f"[{request.sessionID}] 使用文本模型（无图片）")
             llm_response = llm_client.chat_with_siliconflow(
                 prompt=user_prompt,
                 temperature=0.3,

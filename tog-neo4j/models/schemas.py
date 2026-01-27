@@ -125,13 +125,27 @@ class CheckRequest(BaseModel):
     operation: str = Field(..., description="图片对应的操作")
 
 
+class AuditOpt(BaseModel):
+    """审计操作数据模型"""
+    event_time: str = Field(..., description="事件时间", alias="eventTime")
+    event_type: str = Field(..., description="事件类型", alias="eventType")
+    event_content: str = Field(..., description="事件内容", alias="eventContent")
+    event_status: str = Field(..., description="事件状态", alias="eventStatus")
+    device_id: str = Field(..., description="设备ID", alias="deviceId")
+    device_ip: str = Field(..., description="设备IP", alias="deviceIp")
+    user: str = Field(..., description="用户")
+
+    class Config:
+        populate_by_name = True  # 允许使用别名
+
+
 class AlarmData(BaseModel):
     """告警信息数据"""
     equipment_asset: str = Field(..., description="设备编号（会话ID）")
     alarm: str = Field(..., description="告警信息")
     work_content: str = Field(..., description="本次工作内容")
     alarm_time: datetime = Field(..., description="告警时间")
-    risk_level: str = Field(default="medium", description="风险等级: high/medium/low")
+    risk_level: str = Field(default="medium", description="风险等级: high/medium/low/none")
 
 
 class SummaryRequest(BaseModel):

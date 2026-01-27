@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     siliconflow_api_url: str
     siliconflow_api_key: str
     siliconflow_model: str
+    siliconflow_vision_model: str
     siliconflow_timeout: int = 120
     siliconflow_max_retries: int = 3
 

@@ -163,3 +163,133 @@ class DatabaseManager:
 
 # 全局数据库管理器实例
 db_manager = DatabaseManager()
+
+
+# ==================== 运维流程独立的Neo4j访问类 ====================
+
+class YWOperationNeo4j:
+    """
+    运维操作流程专用Neo4j访问类
+    与GraphRAG逻辑完全独立，不使用grag_id隔离
+    """
+
+    def __init__(self, uri: str = None, username: str = None, password: str = None):
+        """
+        初始化运维流程Neo4j连接
+
+        Args:
+            uri: Neo4j连接地址，默认从配置读取
+            username: 用户名，默认从配置读取
+            password: 密码，默认从配置读取
+        """
+        from core.config import settings
+
+        self.uri = uri or settings.neo4j_uri
+        self.username = username or settings.neo4j_user
+        self.password = password or settings.neo4j_password
+
+        try:
+            self.driver = GraphDatabase.driver(self.uri, auth=(self.username, self.password))
+            self.driver.verify_connectivity()
+            logger.info(f"成功连接到运维流程Neo4j数据库: {self.uri}")
+        except Exception as e:
+            logger.error(f"连接运维流程Neo4j失败: {e}")
+            raise
+
+    def close(self):
+        """关闭数据库连接"""
+        if self.driver:
+            self.driver.close()
+            logger.info("运维流程Neo4j连接已关闭")
+
+    def execute_query(self, cypher_query: str, parameters: Dict = None) -> List[Dict]:
+        """执行Cypher查询"""
+        try:
+            with self.driver.session() as session:
+                result = session.run(cypher_query, parameters or {})
+                return [record.data() for record in result]
+        except Exception as e:
+            logger.error(f"运维流程Cypher查询失败: {e}")
+            logger.error(f"查询语句: {cypher_query}")
+            logger.error(f"参数: {parameters}")
+            return []
+
+    def get_all_operation_processes(self) -> List[str]:
+        """
+        获取所有操作流程名称（operation_process属性值）
+
+        Returns:
+            操作流程名称列表
+        """
+        query = """
+        MATCH (n)
+        WHERE n.operation_process IS NOT NULL
+        RETURN DISTINCT n.operation_process AS process_name
+        ORDER BY process_name
+        """
+        results = self.execute_query(query)
+        return [str(item["process_name"]) for item in results if item.get("process_name")]
+
+    def get_operation_process_nodes(self, process_name: str) -> List[str]:
+        """
+        获取指定操作流程的所有节点名称
+
+        Args:
+            process_name: 操作流程名称（operation_process属性值）
+
+        Returns:
+            该流程中所有节点的名称列表
+        """
+        query = """
+        MATCH (n)
+        WHERE n.operation_process = $process_name
+        RETURN DISTINCT n.name AS node_name
+        ORDER BY node_name
+        """
+        results = self.execute_query({"process_name": process_name})
+        return [str(item["node_name"]) for item in results if item.get("node_name")]
+
+    def get_operation_process_chain(self, process_name: str) -> List[Dict[str, Any]]:
+        """
+        获取指定操作流程的完整链条（带关系信息）
+
+        Args:
+            process_name: 操作流程名称
+
+        Returns:
+            包含节点和关系信息的链条列表
+            格式: [{"from": "节点A", "to": "节点B", "relation": "下一步"}, ...]
+        """
+        query = """
+        MATCH (n1)-[r:下一步]->(n2)
+        WHERE n1.operation_process = $process_name
+          AND n2.operation_process = $process_name
+        RETURN DISTINCT
+            n1.name AS from_node,
+            n2.name AS to_node,
+            type(r) AS relation
+        ORDER BY from_node, to_node
+        """
+        results = self.execute_query({"process_name": process_name})
+
+        return [
+            {
+                "from": str(item["from_node"]),
+                "to": str(item["to_node"]),
+                "relation": str(item["relation"])
+            }
+            for item in results
+            if item.get("from_node") and item.get("to_node")
+        ]
+
+
+# 全局运维流程Neo4j实例（延迟初始化）
+_yw_neo4j_instance: Optional[YWOperationNeo4j] = None
+
+
+def get_yw_neo4j() -> YWOperationNeo4j:
+    """获取运维流程Neo4j单例"""
+    global _yw_neo4j_instance
+    if _yw_neo4j_instance is None:
+        _yw_neo4j_instance = YWOperationNeo4j()
+    return _yw_neo4j_instance
