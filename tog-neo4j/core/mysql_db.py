@@ -205,6 +205,33 @@ class OperationRecordDB:
             logger.error(f"获取记录数量失败: {e}")
             return 0
 
+    def delete_records_by_session(self, session_id: str) -> int:
+        """
+        删除会话的所有操作记录
+
+        Args:
+            session_id: 会话ID
+
+        Returns:
+            删除的记录数量
+        """
+        self._ensure_connection()
+        try:
+            with self.connection.cursor() as cursor:
+                sql = """
+                    DELETE FROM operation_records
+                    WHERE session_id = %s
+                """
+                cursor.execute(sql, (session_id,))
+                deleted_count = cursor.rowcount
+                self.connection.commit()
+                logger.info(f"删除会话记录成功: session_id={session_id}, deleted_count={deleted_count}")
+                return deleted_count
+        except Exception as e:
+            logger.error(f"删除会话记录失败: {e}")
+            self.connection.rollback()
+            raise
+
     def close(self):
         """关闭数据库连接"""
         if self.connection:

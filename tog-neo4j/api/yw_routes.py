@@ -189,6 +189,7 @@ async def ai_summary(request: SummaryRequest):
 
     请求参数：
     - sessionID: 会话ID（设备ID）
+    - delete: 是否在总结后删除该会话的所有记录（可选，默认false）
 
     返回：
     - ds_id: 设备ID（int类型，从sessionID转换而来）
@@ -498,6 +499,17 @@ async def ai_summary(request: SummaryRequest):
         logger.info(f"[{request.sessionID}] 工单信息: ds_id={work_order.ds_id}, work_class={work_order.work_class}（{'软件' if work_order.work_class == 1 else '硬件'}）")
         logger.info(f"[{request.sessionID}] 工作内容长度: {len(work_order.work_notice)}字")
         logger.info(f"[{request.sessionID}] 工作内容: {work_order.work_notice}")
+
+        # ========== 删除会话记录（如果请求要求删除）==========
+        if request.delete:
+            log_step(5, 5, f"删除会话记录（delete={request.delete}）", request.sessionID)
+            try:
+                deleted_count = get_operation_db().delete_records_by_session(request.sessionID)
+                logger.info(f"[{request.sessionID}] ✅ 已删除 {deleted_count} 条操作记录")
+            except Exception as e:
+                logger.error(f"[{request.sessionID}] ❌ 删除操作记录失败: {e}", exc_info=True)
+                # 删除失败不影响总结结果，只记录错误
+
         logger.info("=" * 60)
 
         return R.ok(
