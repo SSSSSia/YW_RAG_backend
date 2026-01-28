@@ -164,7 +164,7 @@ class AlarmData(BaseModel):
 class SummaryRequest(BaseModel):
     """AI总结请求"""
     sessionID: str = Field(..., description="会话ID（设备ID）")
-    delete: bool = Field(True, description="是否在总结后删除该会话的所有记录")
+    delete: bool = Field(False, description="是否在总结后删除该会话的所有记录")
 
 
 class WorkOrderData(BaseModel):
