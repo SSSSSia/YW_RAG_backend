@@ -124,8 +124,8 @@ class AutoQueryAgent(BaseAgent):
                 result = self.tog_tool.execute(
                     grag_id=context.grag_id,
                     question=context.question,
-                    max_depth=context.metadata.get("max_depth", 5),
-                    max_width=context.metadata.get("max_width", 5)
+                    max_depth=context.metadata.get("max_depth", 3),
+                    max_width=context.metadata.get("max_width", 3)
                 )
             elif method == "graphrag":
                 result = self.graphrag_tool.execute(
@@ -137,8 +137,8 @@ class AutoQueryAgent(BaseAgent):
                 result = await self.hybrid_tool.execute(
                     grag_id=context.grag_id,
                     question=context.question,
-                    max_depth=context.metadata.get("max_depth", 5),
-                    max_width=context.metadata.get("max_width", 5),
+                    max_depth=context.metadata.get("max_depth", 3),
+                    max_width=context.metadata.get("max_width", 3),
                     method=context.metadata.get("graphrag_method", "local")
                 )
 

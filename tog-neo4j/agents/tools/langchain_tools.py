@@ -24,15 +24,15 @@ class ToGInput(BaseModel):
     """ToG 查询输入"""
     grag_id: str = Field(description="知识库ID")
     question: str = Field(description="用户问题")
-    max_depth: int = Field(default=5, description="最大推理深度")
-    max_width: int = Field(default=5, description="最大推理宽度")
+    max_depth: int = Field(default=3, description="最大推理深度")
+    max_width: int = Field(default=3, description="最大推理宽度")
 
 
 class HybridInput(BaseModel):
     """混合查询输入"""
     grag_id: str = Field(description="知识库ID")
     question: str = Field(description="用户问题")
-    max_depth: int = Field(default=10, description="最大推理深度")
+    max_depth: int = Field(default=3, description="最大推理深度")
     max_width: int = Field(default=3, description="最大推理宽度")
     method: str = Field(default="local", description="GraphRAG方法")
 
@@ -102,8 +102,8 @@ class ToGTool(BaseTool):
         self,
         grag_id: str,
         question: str,
-        max_depth: int = 5,
-        max_width: int = 5,
+        max_depth: int = 3,
+        max_width: int = 3,
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         """同步执行"""

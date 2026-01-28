@@ -76,8 +76,8 @@ class MessageItem(BaseModel):
 class ToGQueryRequest(BaseModel):
     """ToG查询请求"""
     grag_id: str
-    max_depth: Optional[int] = 5
-    max_width: Optional[int] = 5
+    max_depth: Optional[int] = 3
+    max_width: Optional[int] = 3
     message_items: Optional[List[MessageItem]] = None
 
 

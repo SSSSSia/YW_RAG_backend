@@ -12,7 +12,7 @@ from core.llm_client import llm_client
 class HybridQueryService:
     """ToG+GraphRAG混合查询服务"""
 
-    def __init__(self, grag_id: str, max_depth: int = 5, max_width: int = 5, method: str = "local"):
+    def __init__(self, grag_id: str, max_depth: int = 3, max_width: int = 3, method: str = "local"):
         self.grag_id = grag_id
         self.max_depth = max_depth
         self.max_width = max_width

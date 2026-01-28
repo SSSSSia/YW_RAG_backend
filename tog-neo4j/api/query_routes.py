@@ -149,8 +149,8 @@ async def query_tog_graphrag(request: ToGGraphRAGQueryRequest):
         # 执行混合查询
         service = HybridQueryService(
             grag_id=request.grag_id,
-            max_depth=request.max_depth or 5,
-            max_width=request.max_width or 5,
+            max_depth=request.max_depth or 3,
+            max_width=request.max_width or 3,
             method=request.method or "local"
         )
 

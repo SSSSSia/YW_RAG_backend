@@ -17,8 +17,8 @@ class QueryToGTool:
             self,
             grag_id: str,
             question: str,
-            max_depth: int = 5,
-            max_width: int = 5
+            max_depth: int = 3,
+            max_width: int = 3
     ) -> Dict[str, Any]:
         """执行 ToG 查询"""
         try:
