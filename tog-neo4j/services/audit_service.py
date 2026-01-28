@@ -268,6 +268,8 @@ class AuditService:
         # 【优化】获取最近的操作历史作为上下文（最近10条，减少token消耗）
         recent_records = get_operation_db().get_records_by_session(sessionID)
         recent_operations = []
+        # 额外提取历史图片的summary（用户需求）
+        previous_image_summaries = []
         for record in recent_records[-10:]:  # 从20条减少到10条
             try:
                 op_data = json.loads(record['operation'])
@@ -276,6 +278,12 @@ class AuditService:
                     'event_time': op_data.get('event_time', ''),
                     'summary': record.get('summary', '')
                 })
+                # 收集历史图片的summary（如果有）
+                if record.get('summary') and record.get('image_path'):
+                    previous_image_summaries.append({
+                        'summary': record.get('summary'),
+                        'event_type': op_data.get('event_type', 'unknown')
+                    })
             except:
                 pass
 
@@ -285,6 +293,15 @@ class AuditService:
             history_context = "\n\n【最近操作历史】\n"
             for i, op in enumerate(recent_operations[-5:], 1):  # 只显示最近5条
                 history_context += f"{i}. {op['event_type']} - {op['summary']}\n"
+
+        # 【新增】构建历史图片总结参考（用户需求）
+        image_summaries_reference = ""
+        if previous_image_summaries:
+            image_summaries_reference = "\n\n【历史图片总结参考】\n"
+            image_summaries_reference += "以下是该会话之前上传图片的AI审查总结，请作为参考来理解当前操作的上下文：\n"
+            for i, img_sum in enumerate(previous_image_summaries[-5:], 1):  # 最多显示最近5张图片的总结
+                image_summaries_reference += f"{i}. 操作类型: {img_sum['event_type']}, 总结: {img_sum['summary']}\n"
+            image_summaries_reference += "\n⚠️ 注意：这些历史图片总结可以帮助你更好地理解当前操作的上下文和连续性。\n"
 
         # 优化后的系统提示词（合并版）- 参考summary接口的详细流程白名单
         system_prompt = """你是运维安全审计AI，需要同时完成风险判断和操作总结。
@@ -382,27 +399,30 @@ class AuditService:
 
         user_prompt = f"""请审计以下运维操作并生成总结：
 {history_context}
+{image_summaries_reference}
 
 【当前待审计的操作】
 事件类型：{audit_opt.event_type}
 事件详情：{event_content_display}
 
-⚠️ **必须结合【最近操作历史】来判断当前操作：**
+⚠️ **必须结合【最近操作历史】和【历史图片总结参考】来判断当前操作：**
 1. 如果上一步是"点击Root账户"或包含"Root账户"、"密码设置"等关键词，紧接着的键盘输入（任意按键）都属于"输入Root密码"流程的一部分 → 判定为安全
 2. 如果上一步是点击某个输入框或确认按钮，紧接着的键盘输入属于密码输入 → 判定为安全
 3. 如果当前操作独立看像是异常，但结合历史上下文后能识别出是白名单流程的继续 → 判定为安全
 4. **【关键】如果当前操作是白名单流程的第1步（如点击"Test this media & install"或点击Kylin启动菜单），则视为新的流程开始 → 判定为安全，即使历史中已有完整流程**
+5. **【新增】参考【历史图片总结参考】中的信息，理解当前操作在整个会话中的上下文和连续性，避免误判**
 
-请结合截图内容、事件类型和最近的操作历史：
+请结合截图内容、事件类型、最近的操作历史以及历史图片总结参考：
 1. 判断该操作是否在上述白名单流程中（必须结合历史上下文）
 2. 判断该操作是否存在安全风险
 3. 生成简洁的操作总结（一句话30字以内）
 
 ⚠️ 关键判断原则：
 - **优先参考历史上下文**：如果上一步操作能解释当前操作（如"点击Root账户"后的按键输入），则判定为安全
+- **利用历史图片总结**：历史图片的AI审查总结可以帮助你理解操作的连续性和上下文，例如如果历史显示正在进行系统安装流程，当前操作应视为流程的一部分
 - **识别新流程开始**：如果当前操作是白名单流程的第1步，视为新的流程开始，判定为安全（不要误判为"重复安装"）
 - 如果当前操作严格匹配上述17步系统重装流程或8步密码重置流程中的某一步 → 判定为安全
-- 只有在历史上下文和当前操作都无法匹配白名单流程时，才报告风险
+- 只有在历史上下文和历史图片总结参考都显示无法匹配白名单流程时，才报告风险
 
 严格按照JSON格式返回所有字段。"""
 

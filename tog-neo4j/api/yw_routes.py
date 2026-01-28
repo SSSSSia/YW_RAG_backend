@@ -405,19 +405,6 @@ async def ai_summary(request: SummaryRequest):
 操作记录详情：
 {operations_text}"""
 
-        # 如果有选中的图片，添加图片信息说明
-        if selected_images:
-            image_info = "\n".join([
-                f"- 操作{img['index']}: {img['summary']}"
-                for img in selected_images
-            ])
-            user_prompt += f"""
-
-已为您提供了以下操作的截图：
-{image_info}
-
-请结合这些截图进行分析，重点关注截图中的关键信息和操作细节。"""
-
         user_prompt += """
 
 请综合分析：
