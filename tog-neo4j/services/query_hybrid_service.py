@@ -68,7 +68,7 @@ class HybridQueryService:
 
         log_step(4, 4, "使用大模型生成最终答案", self.grag_id)
         try:
-            final_answer = await llm_client.generate(integration_prompt)
+            final_answer = await llm_client.generate_with_siliconflow(integration_prompt)
         except Exception as e:
             logger.error(f"整合答案生成失败: {e}")
             final_answer = tog_answer if len(tog_answer) > len(graph_answer) else graph_answer
