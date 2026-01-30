@@ -432,7 +432,7 @@ class AuditService:
                 prompt=user_prompt,
                 image_base64=image_base64,
                 temperature=0.3,
-                max_tokens=1000,  # 增加token以同时输出风险和总结
+                max_tokens=2000,  # 增加token以同时输出风险和总结
                 system_prompt=system_prompt
             )
 

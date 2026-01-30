@@ -155,16 +155,17 @@ class AlarmData(BaseModel):
     def to_api_response(self) -> dict:
         """转换为API响应格式（只包含Java后端需要的3个字段）"""
         return {
-            "equipment_asset": self.equipment_asset,
+            "equipmentAsset": self.equipment_asset,
             "alarm": self.alarm,
-            "alarm_time": self.alarm_time
+            "alarmTime": self.alarm_time.strftime("%Y-%m-%d %H:%M:%S")
         }
 
 
 class SummaryRequest(BaseModel):
     """AI总结请求"""
     sessionID: str = Field(..., description="会话ID（设备ID）")
-    delete: bool = Field(False, description="是否在总结后删除该会话的所有记录")
+    delete: bool = Field(True, description="是否在总结后删除该会话的所有记录")
+    use_images: bool = Field(False, description="是否使用图片进行分析（True会调用LLM选择图片并使用视觉模型，False直接使用纯文本分析，速度更快）")
 
 
 class WorkOrderData(BaseModel):

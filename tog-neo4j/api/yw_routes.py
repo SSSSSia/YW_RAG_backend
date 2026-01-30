@@ -197,7 +197,7 @@ async def ai_summary(request: SummaryRequest):
     - work_notice: 工作内容详细总结
     """
     try:
-        logger.info("=" * 60)
+        logger.info("=" * 100)
         logger.info(f"[{request.sessionID}] 🔍 收到AI总结请求")
 
         # 从数据库获取会话的所有操作记录
@@ -222,17 +222,21 @@ async def ai_summary(request: SummaryRequest):
 
         operations_text = "\n\n".join(operations_summary)
 
-        # ========== 第一轮：让LLM判断需要查看哪些关键操作的图片 ==========
-        log_step(3, 5, "LLM智能选择需要查看的图片", request.sessionID)
-
-        # 检查是否有图片可用
-        has_images = any(record.get('image_path') for record in records)
-
+        # ========== 判断是否使用图片分析 ==========
+        use_images = request.use_images  # 从请求中获取是否使用图片的配置
         selected_image_indices = []
+        selected_images = []
 
-        if has_images:
-            # 第一轮：只传文字，让LLM选择需要查看图片的操作序号
-            selection_prompt = f"""请分析以下运维操作记录，判断需要查看哪些操作的截图才能准确生成工单。
+        if use_images:
+            # ========== 第一轮：让LLM判断需要查看哪些关键操作的图片 ==========
+            log_step(3, 5, "LLM智能选择需要查看的图片", request.sessionID)
+
+            # 检查是否有图片可用
+            has_images = any(record.get('image_path') for record in records)
+
+            if has_images:
+                # 第一轮：只传文字，让LLM选择需要查看图片的操作序号
+                selection_prompt = f"""请分析以下运维操作记录，判断需要查看哪些操作的截图才能准确生成工单。
 
 会话ID（设备ID）: {request.sessionID}
 共有 {len(records)} 条操作记录。
@@ -240,7 +244,7 @@ async def ai_summary(request: SummaryRequest):
 操作记录详情：
 {operations_text}
 
-**选择规则（最多选择5个操作）：**
+**选择规则（最多选择3个操作）：**
 1. 优先选择关键操作（如配置修改、软件安装、重要决策点）
 2. 选择代表性操作（如开始、结束、重要转折点）
 3. 选择复杂操作（文字描述不够清晰的操作）
@@ -254,7 +258,7 @@ async def ai_summary(request: SummaryRequest):
 
 注意：
 - selected_operations是一个数字数组，表示操作序号
-- 最多选择5个操作
+- 最多选择3个操作
 - 如果操作记录简单明确，可以选择空数组[]"""
 
             try:
@@ -277,8 +281,8 @@ async def ai_summary(request: SummaryRequest):
                     selected_image_indices = selection_result.get("selected_operations", [])
                     reason = selection_result.get("reason", "")
 
-                    # 限制最多5张图片
-                    selected_image_indices = selected_image_indices[:5]
+                    # 限制最多3张图片
+                    selected_image_indices = selected_image_indices[:3]
 
                     logger.info(f"[{request.sessionID}] LLM选择了 {len(selected_image_indices)} 张图片: {selected_image_indices}")
                     logger.info(f"[{request.sessionID}] 选择理由: {reason}")
@@ -297,28 +301,31 @@ async def ai_summary(request: SummaryRequest):
                 if len(records) > 2:
                     selected_image_indices.append(len(records))
 
-        # ========== 第二轮：根据选择加载对应的图片 ==========
-        log_step(4, 5, "加载选中的图片", request.sessionID)
+            # ========== 第二轮：根据选择加载对应的图片 ==========
+            log_step(4, 5, "加载选中的图片", request.sessionID)
 
-        # 根据选择的操作序号加载图片
-        selected_images = []
-        for idx in selected_image_indices:
-            # 转换为0-based索引
-            record_idx = idx - 1
-            if 0 <= record_idx < len(records):
-                record = records[record_idx]
-                image_path = record.get('image_path')
-                if image_path:
-                    image_base64 = get_session_storage_service().get_image_base64(image_path)
-                    if image_base64:
-                        selected_images.append({
-                            'index': idx,
-                            'operation': record['operation'],
-                            'summary': record['summary'],
-                            'image': image_base64
-                        })
+            # 根据选择的操作序号加载图片
+            for idx in selected_image_indices:
+                # 转换为0-based索引
+                record_idx = idx - 1
+                if 0 <= record_idx < len(records):
+                    record = records[record_idx]
+                    image_path = record.get('image_path')
+                    if image_path:
+                        image_base64 = get_session_storage_service().get_image_base64(image_path)
+                        if image_base64:
+                            selected_images.append({
+                                'index': idx,
+                                'operation': record['operation'],
+                                'summary': record['summary'],
+                                'image': image_base64
+                            })
 
-        logger.info(f"[{request.sessionID}] 成功加载 {len(selected_images)} 张图片")
+            logger.info(f"[{request.sessionID}] 成功加载 {len(selected_images)} 张图片")
+        else:
+            # ========== 纯文本模式：跳过图片选择，直接使用文本分析 ==========
+            log_step(3, 4, "使用纯文本模式（跳过图片分析）", request.sessionID)
+            logger.info(f"[{request.sessionID}] 使用纯文本快速总结模式，不加载图片")
 
         # 构建AI总结的提示词
         system_prompt = """你是一个专业的运维工单生成AI助手。你的任务是根据运维操作记录（包括图片和文字描述）生成详细的工单信息。不用说明对应了哪张截图，只输出自然语言描述就行。
@@ -359,7 +366,7 @@ async def ai_summary(request: SummaryRequest):
 🔴 以下操作必须被标记为异常/违规，即使出现在流程之后：
 1. 访问敏感目录：/root、/etc、/boot、/sys、/proc、/home/其他用户
 2. 打开/编辑敏感文件：/etc/passwd、/etc/shadow、*.conf、*.cfg、私钥、脚本文件
-3. 危险命令：删除（rm、delete）、格式化、停止服务、修改权限
+3. 危险命令：删除（rm、delete）、格式化、停止服务、修改权限、移动复制用户文件（cp、mv）
 4. 未授权操作：创建用户、安装软件、修改网络配置
 5. 探索性操作：浏览文件系统、查看日志（除非是明确故障排查）
 
@@ -502,13 +509,17 @@ async def ai_summary(request: SummaryRequest):
 
         # ========== 删除会话记录（如果请求要求删除）==========
         if request.delete:
-            log_step(5, 5, f"删除会话记录（delete={request.delete}）", request.sessionID)
-            try:
-                deleted_count = get_operation_db().delete_records_by_session(request.sessionID)
-                logger.info(f"[{request.sessionID}] ✅ 已删除 {deleted_count} 条操作记录")
-            except Exception as e:
-                logger.error(f"[{request.sessionID}] ❌ 删除操作记录失败: {e}", exc_info=True)
-                # 删除失败不影响总结结果，只记录错误
+            # 保护特殊会话（如测试会话）
+            if request.sessionID == "1001":
+                logger.info(f"[{request.sessionID}] ⏭️ 跳过删除（保护会话）")
+            else:
+                log_step(5, 5, "删除会话记录", request.sessionID)
+                try:
+                    deleted_count = get_operation_db().delete_records_by_session(request.sessionID)
+                    logger.info(f"[{request.sessionID}] ✅ 已删除 {deleted_count} 条操作记录")
+                except Exception as e:
+                    logger.error(f"[{request.sessionID}] ❌ 删除操作记录失败: {e}", exc_info=True)
+                    # 删除失败不影响总结结果，只记录错误
 
         logger.info("=" * 60)
 
