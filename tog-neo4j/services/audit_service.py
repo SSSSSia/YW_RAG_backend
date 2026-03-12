@@ -3,18 +3,91 @@ AI审计服务（优化版）- 完全基于LLM的风险审计，使用MySQL存�
 性能优化：
 1. 合并风险审计和操作总结为一次LLM调用
 2. 内存中直接转换图片，减少I/O操作
+3. 图片压缩，减少传输数据量
 """
 import os
+import io
 import json
 import base64
 from datetime import datetime
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
+
+from PIL import Image
 
 from models.schemas import R, AuditOpt, AlarmData
 from core.llm_client import llm_client
 from core.mysql_db import get_operation_db
 from services.session_storage_service import get_session_storage_service
 from utils.logger import logger, log_step
+
+
+# ==================== 图片压缩配置 ====================
+# 压缩后的最大尺寸（宽, 高）
+IMAGE_MAX_SIZE = (1280, 720)
+# JPEG压缩质量（1-100，数值越小文件越小但质量越低）
+IMAGE_QUALITY = 80
+# 启用压缩的最小文件大小阈值（字节），小于此值不压缩
+IMAGE_COMPRESS_THRESHOLD = 100 * 1024  # 100KB
+
+
+def _compress_image(
+    image_data: bytes,
+    max_size: Tuple[int, int] = IMAGE_MAX_SIZE,
+    quality: int = IMAGE_QUALITY
+) -> Tuple[bytes, str]:
+    """
+    压缩图片以加快传输和处理速度
+
+    Args:
+        image_data: 原始图片数据（字节）
+        max_size: 压缩后的最大尺寸（宽, 高），默认(1280, 720)
+        quality: JPEG压缩质量（1-100），默认80
+
+    Returns:
+        Tuple[bytes, str]: (压缩后的图片数据, MIME类型)
+    """
+    original_size = len(image_data)
+
+    try:
+        # 打开图片
+        img = Image.open(io.BytesIO(image_data))
+        original_mode = img.mode
+        original_dimensions = img.size
+
+        # 调整尺寸（保持宽高比）
+        if img.width > max_size[0] or img.height > max_size[1]:
+            img.thumbnail(max_size, Image.Resampling.LANCZOS)
+            logger.debug(f"[图片压缩] 尺寸调整: {original_dimensions} -> {img.size}")
+
+        # 转换为RGB模式（处理PNG透明通道等）
+        if img.mode in ('RGBA', 'P', 'LA', 'L'):
+            # 创建白色背景
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'P':
+                img = img.convert('RGBA')
+            if img.mode in ('RGBA', 'LA'):
+                background.paste(img, mask=img.split()[-1])  # 使用alpha通道作为mask
+                img = background
+            else:
+                img = img.convert('RGB')
+
+        # 压缩输出为JPEG格式
+        output = io.BytesIO()
+        img.save(output, format='JPEG', quality=quality, optimize=True)
+        compressed_data = output.getvalue()
+        compressed_size = len(compressed_data)
+
+        # 计算压缩率
+        compression_ratio = (1 - compressed_size / original_size) * 100
+        logger.info(f"[图片压缩] 完成: {original_size/1024:.1f}KB -> {compressed_size/1024:.1f}KB "
+                   f"(压缩率: {compression_ratio:.1f}%, 尺寸: {img.size})")
+
+        return compressed_data, "image/jpeg"
+
+    except Exception as e:
+        logger.warning(f"[图片压缩] 压缩失败，使用原图: {e}")
+        # 返回原图
+        return image_data, "image/jpeg"
 
 
 def _build_response_data(sessionID: str, alarm: Optional[str] = None, alarm_time: Optional[datetime] = None) -> dict:
@@ -81,25 +154,34 @@ class AuditService:
                 logger.info("=" * 60)
                 return R.ok(message="忽略松开事件", data=_build_response_data(sessionID))
 
-            # 【优化】在内存中直接转换图片为base64，避免重复I/O
+            # 【优化】图片压缩处理，减少传输数据量
             log_step(1, 3, "准备图片数据", sessionID)
             filename = pic_filename or f"{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg"
 
-            # 判断图片MIME类型（根据文件扩展名）
-            ext = os.path.splitext(filename)[1].lower() if '.' in filename else '.jpg'
-            mime_type = {
-                ".jpg": "image/jpeg",
-                ".jpeg": "image/jpeg",
-                ".png": "image/png",
-                ".gif": "image/gif",
-                ".bmp": "image/bmp"
-            }.get(ext, "image/jpeg")
+            # 判断是否需要压缩（文件大小超过阈值时压缩）
+            original_size = len(image_data)
+            if original_size > IMAGE_COMPRESS_THRESHOLD:
+                logger.info(f"[AuditService] [{sessionID}] 图片大小: {original_size/1024:.1f}KB，开始压缩...")
+                processed_data, mime_type = _compress_image(image_data)
+            else:
+                # 小图片不压缩，直接使用
+                logger.info(f"[AuditService] [{sessionID}] 图片大小: {original_size/1024:.1f}KB，跳过压缩")
+                # 判断图片MIME类型（根据文件扩展名）
+                ext = os.path.splitext(filename)[1].lower() if '.' in filename else '.jpg'
+                mime_type = {
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".png": "image/png",
+                    ".gif": "image/gif",
+                    ".bmp": "image/bmp"
+                }.get(ext, "image/jpeg")
+                processed_data = image_data
 
-            # 转换为base64并添加data URL前缀
-            base64_str = base64.b64encode(image_data).decode('utf-8')
+            # 转换为base64并添加data URL前缀（使用处理后的数据）
+            base64_str = base64.b64encode(processed_data).decode('utf-8')
             image_base64 = f"data:{mime_type};base64,{base64_str}"
 
-            # 保存图片到会话目录
+            # 保存图片到会话目录（保存原始图片，用于后续查看）
             log_step(2, 3, "保存图片", sessionID)
             image_path = get_session_storage_service().save_image(sessionID, filename, image_data)
 
@@ -432,7 +514,7 @@ class AuditService:
                 prompt=user_prompt,
                 image_base64=image_base64,
                 temperature=0.3,
-                max_tokens=2000,  # 增加token以同时输出风险和总结
+                max_tokens=3000,  # 增加token以同时输出风险和总结
                 system_prompt=system_prompt
             )
 
